@@ -1,0 +1,211 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/fi/fi.schema.json",
+  "title": "fi configuration",
+  "description": "Config file for the fi developer workflow CLI (~/.config/fi/fi.yaml)",
+  "type": "object",
+  "required": ["version", "jira", "common", "repos"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Config schema version. Must be 1."
+    },
+    "jira": {
+      "type": "object",
+      "description": "Jira integration settings.",
+      "required": ["baseUrl", "boardId", "quickFilterId", "token"],
+      "additionalProperties": false,
+      "properties": {
+        "baseUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "Base URL of your Jira instance, e.g. https://myorg.atlassian.net"
+        },
+        "boardId": {
+          "type": "integer",
+          "description": "Numeric ID of the Jira board to pull issues from."
+        },
+        "quickFilterId": {
+          "type": "integer",
+          "description": "Numeric ID of a quick filter on the board (scopes which issues appear in `fi new`)."
+        },
+        "jqlExtension": {
+          "type": "string",
+          "description": "Optional extra JQL appended to the issue query, e.g. \"assignee = currentUser()\"."
+        },
+        "token": {
+          "type": "object",
+          "description": "Jira API token configuration.",
+          "required": ["env"],
+          "additionalProperties": false,
+          "properties": {
+            "env": {
+              "type": "string",
+              "description": "Name of the environment variable that holds the base64-encoded 'email:token' Jira API token."
+            }
+          }
+        }
+      }
+    },
+    "common": {
+      "type": "object",
+      "description": "Shared branch-naming conventions applied across all repos.",
+      "required": ["branchPrefixes", "defaultBranchPrefix"],
+      "additionalProperties": false,
+      "properties": {
+        "branchPrefixes": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "description": "Available branch type prefixes, e.g. [\"feature\", \"fix\", \"chore\"]."
+        },
+        "defaultBranchPrefix": {
+          "type": "string",
+          "description": "Which prefix is pre-selected when creating a new branch."
+        },
+        "branchFormat": {
+          "type": "string",
+          "description": "Template for the full branch name. Supports {branchPrefix}, {ticket.key}, {slug}. Defaults to \"{branchPrefix}/{ticket.key}-{slug}\"."
+        }
+      }
+    },
+    "repos": {
+      "type": "array",
+      "description": "List of repositories managed by fi.",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/repo" }
+    }
+  },
+  "$defs": {
+    "repo": {
+      "type": "object",
+      "required": ["name", "root", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Human-readable display name for this repo."
+        },
+        "root": {
+          "type": "string",
+          "description": "Path to the repo root. Tildes are expanded. For worktree repos this is the bare repo (.git dir)."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["worktree", "standard"],
+          "description": "\"worktree\" for bare repos using git worktrees; \"standard\" for a regular checkout."
+        },
+        "defaultBranch": {
+          "type": "string",
+          "description": "Name of the main integration branch (e.g. \"master\", \"main\"). Used as the default base when creating branches and for merged-detection in `fi cull`."
+        },
+        "featurePath": {
+          "type": "string",
+          "description": "Subdirectory (relative to root) where new worktrees are created. Only used for worktree repos. E.g. \"work\"."
+        },
+        "persistentPath": {
+          "type": "string",
+          "description": "Subdirectory (relative to root) for persistent/long-lived worktrees that should never appear in `fi cull`. E.g. \"persistent\"."
+        },
+        "persistentBranches": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Branch names that are excluded from `fi cull` and `fi open`, e.g. [\"master\", \"develop\"]."
+        },
+        "prToBranches": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Target branches offered when running `fi pr`. All are pre-selected; user can deselect."
+        },
+        "prTemplate": { "$ref": "#/$defs/prTemplate" },
+        "commands": {
+          "type": "array",
+          "description": "Custom commands available after creating or opening a worktree/branch.",
+          "items": { "$ref": "#/$defs/command" }
+        }
+      }
+    },
+    "prTemplate": {
+      "type": "object",
+      "description": "Template used when creating pull requests with `fi pr`.",
+      "required": ["title", "body"],
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Template string for the PR title. Supports: {branch.prettyTitle}, {ticket.key}, {pr.targetPrefix: '[fmt $1]'} (conditional — only rendered if target is not the default branch), {ask.<field>}."
+        },
+        "body": {
+          "type": "string",
+          "description": "Template string for the PR body (markdown). Same variable syntax as title. Use YAML block scalar (|) for multi-line bodies."
+        },
+        "ask": {
+          "$ref": "#/$defs/askMap",
+          "description": "Optional fields to prompt the user for before rendering the PR. Values are available as {ask.<fieldName>} in title/body templates."
+        }
+      }
+    },
+    "command": {
+      "type": "object",
+      "description": "A named custom command runnable after a worktree is created or opened.",
+      "required": ["command", "runner", "run"],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "type": "string",
+          "description": "Identifier for this command, e.g. \"open\". The \"open\" command is special: it runs automatically when selected in `fi open`."
+        },
+        "runner": {
+          "type": "string",
+          "description": "Executable used to run the script, e.g. \"fish\", \"bash\", \"/usr/local/bin/fish\". The script is written to a temp file and the runner is invoked as: <runner> <tempfile>."
+        },
+        "run": {
+          "type": "string",
+          "description": "The script body. Use YAML block scalar (|) for multi-line scripts. \\n in strings is interpreted as a real newline when the script is written to the temp file."
+        },
+        "ask": {
+          "$ref": "#/$defs/askMap",
+          "description": "Fields to prompt the user for before running this command. Values are available as env vars via the `env` map."
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment variables set when the script runs. Values are template strings supporting {branch.path} and {ask.<fieldName>}.",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "askMap": {
+      "type": "object",
+      "description": "A map of field names to their prompt type.",
+      "additionalProperties": { "$ref": "#/$defs/askField" }
+    },
+    "askField": {
+      "description": "Either a type shorthand string (e.g. \"boolean\") or a full object with type and options.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["boolean", "editor", "text"],
+          "description": "Shorthand: just the field type."
+        },
+        {
+          "type": "object",
+          "required": ["type"],
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["boolean", "editor", "text"],
+              "description": "\"boolean\" → yes/no confirm prompt. \"editor\" → opens $EDITOR, returns file contents. \"text\" → single-line text input."
+            },
+            "optional": {
+              "type": "boolean",
+              "description": "If true, the user can skip this field (press Esc). Skipped values are empty strings in templates."
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,22 @@
+[package]
+name = "fi"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+clap_complete = "4.5"
+clap_complete_nushell = "4.5"
+colored = "3"
+dirs = "6"
+indicatif = "0.18"
+inquire = { version = "0.9", features = ["editor"] }
+reqwest = { version = "0.13", features = ["json", "query"] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+tokio = { version = "1", features = ["full"] }
+
+[profile.release]
+lto = true
+strip = true
