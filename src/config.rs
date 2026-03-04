@@ -193,11 +193,7 @@ pub struct HookConfig {
 
 impl fmt::Display for HookConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            self.name.as_deref().unwrap_or("hook")
-        )
+        write!(f, "{}", self.name.as_deref().unwrap_or("hook"))
     }
 }
 

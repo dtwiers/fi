@@ -173,9 +173,7 @@ fn resolve_hook_env(
         "branch.path".into(),
         ctx.branch_path.unwrap_or("").to_string(),
     );
-    let root = expand_tilde(&ctx.repo.root)
-        .to_string_lossy()
-        .to_string();
+    let root = expand_tilde(&ctx.repo.root).to_string_lossy().to_string();
     vars.insert("repo.root".into(), root);
     vars.insert("repo.name".into(), ctx.repo.name.clone());
     vars.insert("repo.remote".into(), ctx.repo.remote().to_string());
