@@ -8,6 +8,7 @@ mod commands;
 mod config;
 mod git;
 mod jira;
+mod template;
 
 #[derive(Parser)]
 #[command(name = "fi", about = "Feature workflow tool", version)]
@@ -54,6 +55,9 @@ enum Commands {
     Pr {
         #[arg(short = 'n', long)]
         dry_run: bool,
+        /// Resume PR creation after resolving merge conflicts in a conflict branch
+        #[arg(long = "continue")]
+        continue_mode: bool,
     },
     /// Open an existing worktree
     Open {
@@ -62,6 +66,11 @@ enum Commands {
     },
     /// List all repos and their current branches / worktrees
     List,
+    /// Sync conflict branches with the feature branch after new commits
+    Sync {
+        #[arg(short = 'n', long)]
+        dry_run: bool,
+    },
     /// Inspect or edit the config file
     Config {
         #[command(subcommand)]
@@ -117,7 +126,7 @@ fn fix_fish_completions(raw: &str) -> String {
         "\tset -l found 0\n",
         "\tfor tok in $cmd\n",
         "\t\tif test $found -eq 1\n",
-        "\t\t\tcontains -- $tok init new cull pr open list config completions help; and return 1\n",
+        "\t\t\tcontains -- $tok init new cull pr open list config sync completions help; and return 1\n",
         "\t\tend\n",
         "\t\tif test $tok = help\n",
         "\t\t\tset found 1\n",
@@ -161,7 +170,7 @@ fn fix_fish_completions(raw: &str) -> String {
     }
 
     // Fix "help" subcommand guards (same semicolon problem).
-    let all_subs = "init new cull pr open list config completions help";
+    let all_subs = "init new cull pr open list config sync completions help";
     fixed = fixed.replace(
         &format!("__fish_fi_using_subcommand help; and not __fish_seen_subcommand_from {}", all_subs),
         "__fish_fi_help_needs_subcommand",
@@ -216,9 +225,12 @@ async fn main() -> Result<()> {
             commands::new::run(&config, dry_run, ticket.as_deref()).await
         }
         Commands::Cull { dry_run } => commands::cull::run(&config, dry_run).await,
-        Commands::Pr   { dry_run } => commands::pr::run(&config, dry_run).await,
+        Commands::Pr { dry_run, continue_mode } => {
+            commands::pr::run(&config, dry_run, continue_mode).await
+        }
         Commands::Open { dry_run } => commands::open::run(&config, dry_run).await,
         Commands::List => commands::list::run(&config).await,
+        Commands::Sync { dry_run } => commands::sync::run(&config, dry_run).await,
         Commands::Completions { .. } | Commands::Init { .. } | Commands::Config { .. } => {
             unreachable!()
         }

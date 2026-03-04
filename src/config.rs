@@ -43,14 +43,28 @@ pub struct CommonConfig {
 }
 
 impl CommonConfig {
-    /// Render the branch name from the format template.
-    /// Supported variables: {branchPrefix}, {ticket.key}, {slug}
-    pub fn render_branch(&self, prefix: &str, ticket_key: &str, slug: &str) -> String {
+    /// Render a branch name from the format template.
+    /// Variables: {branchPrefix}, {ticket.key}, {slug}, {conflictBase} (conditional).
+    pub fn render_branch(
+        &self,
+        prefix: &str,
+        ticket_key: &str,
+        slug: &str,
+        conflict_base: Option<&str>,
+    ) -> String {
+        use crate::template::render_template;
+        use std::collections::HashMap;
+
         let fmt = self.branch_format.as_deref()
             .unwrap_or("{branchPrefix}/{ticket.key}-{slug}");
-        fmt.replace("{branchPrefix}", prefix)
-            .replace("{ticket.key}", ticket_key)
-            .replace("{slug}", slug)
+
+        let mut vars = HashMap::new();
+        vars.insert("branchPrefix".into(), prefix.to_string());
+        vars.insert("ticket.key".into(), ticket_key.to_string());
+        vars.insert("slug".into(), slug.to_string());
+        vars.insert("conflictBase".into(), conflict_base.unwrap_or("").to_string());
+
+        render_template(fmt, &vars)
     }
 }
 
@@ -67,6 +81,8 @@ pub struct RepoConfig {
     pub persistent_branches: Option<Vec<String>>,
     #[serde(rename = "featurePath")]
     pub feature_path: Option<String>,
+    #[serde(rename = "mergeConflictPath")]
+    pub merge_conflict_path: Option<String>,
     #[serde(rename = "prToBranches")]
     pub pr_to_branches: Option<Vec<String>>,
     #[serde(rename = "prTemplate")]

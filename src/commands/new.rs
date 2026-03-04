@@ -67,7 +67,7 @@ pub async fn run(config: &Config, dry_run: bool, ticket: Option<&str>) -> Result
         .collect::<Result<_>>()?;
 
     // 7. Preview
-    let branch_name = config.common.render_branch(&branch_type, &issue.key, &description);
+    let branch_name = config.common.render_branch(&branch_type, &issue.key, &description, None);
     println!();
     for (repo, base) in &repos_with_base {
         println!(

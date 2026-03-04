@@ -5,6 +5,7 @@ pub mod list;
 pub mod new;
 pub mod open;
 pub mod pr;
+pub mod sync;
 
 use anyhow::Result;
 use colored::Colorize;
