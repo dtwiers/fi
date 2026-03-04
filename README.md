@@ -12,7 +12,9 @@ Built in Rust. Fast, interactive, driven by a single YAML config file.
 |---|---|
 | `fi new` | Pick a Jira ticket, create a branch or worktree |
 | `fi open` | List worktrees, select one, run your custom open script |
-| `fi pr` | Create GitHub PRs from the current branch, with templated title + body |
+| `fi pr` | Create GitHub PRs; auto-detects and manages merge-conflict branches |
+| `fi pr --continue` | Continue PR creation after resolving merge conflicts |
+| `fi sync` | Push feature branch updates into existing conflict branches |
 | `fi cull` | Multi-select stale worktrees to delete (shows dirty/unpushed/merged status) |
 | `fi init` | Write a starter config to `~/.config/fi/fi.yaml` |
 | `fi completions` | Print shell completion scripts for bash, zsh, fish, or nushell |
@@ -106,6 +108,7 @@ repos:
     defaultBranch: master
     featurePath: work          # new worktrees go in root/work/
     persistentPath: persistent # worktrees here are never shown in `fi cull`
+    mergeConflictPath: conflicts # conflict-resolution worktrees go here (used by fi pr)
     persistentBranches: [master, develop]
     prToBranches: [master, develop]
     prTemplate: { ... }
@@ -135,6 +138,7 @@ prTemplate:
 | `{branch.prettyTitle}` | Branch slug converted to Title Case (e.g. `Fix Wy Claim Report`) |
 | `{ticket.key}` | Jira ticket key (e.g. `PROJ-1234`) |
 | `{pr.targetPrefix}` | Target branch name, or `""` if target is the default branch |
+| `{pr.conflictBase}` | Uppercase conflict base (e.g. `DEVELOP`), or `""` for non-conflict PRs |
 | `{ask.<name>}` | Value collected from an `ask` field |
 
 **Conditional syntax:** `{variable: 'format with $1'}` — only rendered if the variable is non-empty. `$1` is replaced with the value. Useful for optional sections:
@@ -215,21 +219,115 @@ After selecting, you're prompted for any `ask` fields defined on the `open` comm
 
 ### `fi pr`
 
-Creates GitHub pull requests for the current branch, using `gh pr create` under the hood.
+Creates GitHub pull requests for the current branch. Uses `gh pr create` under the hood and handles merge-conflict scenarios automatically.
 
 ```
 fi pr [--dry-run]
+fi pr --continue
 ```
 
-Flow:
-1. **Auto-detect** the repo and branch from `$PWD` (or prompt if not in a known repo)
-2. **Parse** the branch name into ticket key + pretty title — both shown as editable prompts
-3. Collect any `ask` fields (e.g. open `$EDITOR` for a description)
-4. Select target branches (from `prToBranches`, all pre-selected)
-5. For each target: show/edit the rendered title, then preview the rendered body
-6. Choose draft or not → confirm → create all PRs
+#### Normal flow (no merge conflicts)
 
-Branch name format expected: `type/PROJECT-1234-some-slug-here`
+1. **Auto-detect** the repo and branch from `$PWD` (or prompt if ambiguous)
+2. **Fetch** the latest state from the remote so conflict checks use fresh refs
+3. **Parse** the branch name into ticket key + pretty title — both shown as editable prompts
+4. Collect any `ask` fields (e.g. open `$EDITOR` for a description)
+5. **Assess all targets in parallel** — for each branch in `prToBranches`, `fi pr` checks:
+   - Does merging your feature branch into `origin/<target>` conflict? (`git merge-tree`)
+   - Does a PR already exist (open, merged, or closed)?
+6. Show a status summary for every target
+7. For non-conflicting targets with no open PR: select which to create (all pre-selected)
+8. For each selected target: preview the rendered body, edit the title, choose draft → confirm → create
+
+#### Conflict resolution flow
+
+When `fi pr` finds merge conflicts between your feature branch and one or more **non-default** target branches (e.g. `develop`, `staging`), it follows this workflow:
+
+```
+feature/PROJ-1234-my-work
+    ├── → master         ✓ no conflict  →  PR created normally
+    └── → develop        ⚠ conflict     →  conflict branch created
+```
+
+**Step 1 — conflict branch creation:**
+
+For each conflicting non-default target, `fi pr` creates a *conflict branch* named after your feature branch with the conflict base embedded. For example:
+
+```
+# branchFormat: "{branchPrefix}/{ticket.key}{conflictBase: '-$1'}-{slug}"
+feature/PROJ-1234-my-work  +  target: develop
+    → feature/PROJ-1234-DEVELOP-my-work
+```
+
+For **worktree repos**, the conflict branch is created as a new worktree under `mergeConflictPath`. For **standard repos**, it's a normal `git checkout -b`. Either way, fi then merges the feature branch in — which will produce a merge conflict.
+
+**Step 2 — manual resolution:**
+
+fi opens the conflict worktree in your editor (via the `open` command) and prints:
+
+```
+→ Resolve merge conflicts in feature/PROJ-1234-DEVELOP-my-work, then run: fi pr --continue
+```
+
+Resolve the conflicts, stage the result, and commit.
+
+**Step 3 — `fi pr --continue`:**
+
+Run `fi pr --continue` from either the feature branch or the conflict branch. fi re-assesses the situation from scratch each time — it never relies on stale state:
+
+| State detected | Action |
+|---|---|
+| Conflict branch doesn't exist yet | Creates it (same as Step 1) |
+| Merge conflicts unresolved | Bails with a helpful message |
+| Feature not yet merged in | Reminds you to run `fi sync` |
+| Conflict branch ready | Creates the PR for the conflict branch |
+| PR already open | Shows existing URL, skips creation |
+
+The PR for a conflict branch targets the *conflict base branch* (e.g. `develop`), and the `{pr.conflictBase}` template variable is set to `DEVELOP` (uppercased) so it can appear in the PR title/body.
+
+**Hard fail:** if the **default branch** (e.g. `master`) has merge conflicts, `fi pr` stops immediately — those conflicts must be resolved on the feature branch itself before any PRs are created.
+
+#### `fi sync`
+
+After adding commits to your feature branch, run `fi sync` to propagate them to any existing conflict branches:
+
+```
+fi sync [--dry-run]
+```
+
+For each conflict branch that exists:
+1. Merges the latest feature branch into the conflict branch
+2. Pushes the conflict branch to the remote
+3. Checks if the associated PR is still open — if it was merged or closed, prompts to recreate it
+
+Run `fi sync` from anywhere inside the repo (feature branch or conflict branch both work).
+
+#### Status indicators shown by `fi pr`
+
+| Symbol | Meaning |
+|---|---|
+| `○ target (PR needed)` | Clean merge, no open PR yet |
+| `✓ target (PR: open)` | PR already exists |
+| `⚠ target (conflict branch needed)` | Conflict detected, conflict branch not yet created |
+| `⚡ target (conflicts unresolved in …)` | Conflict branch exists but merge isn't resolved |
+| `⚡ target (feature not merged into …)` | Conflict branch exists but `fi sync` hasn't run |
+| `● target (conflict branch ready → PR needed)` | All resolved, ready for `fi pr --continue` |
+| `✓ target (conflict-branch PR: open)` | Conflict PR already submitted |
+
+#### Template variables for conflict PRs
+
+| Variable | Value |
+|---|---|
+| `{pr.conflictBase}` | The uppercase conflict base (e.g. `DEVELOP`, `STAGING`) |
+
+Example title template that works for both normal and conflict PRs:
+
+```yaml
+title: "{pr.conflictBase: '[$1 CONFLICT]: '}{pr.targetPrefix: '[$1]: '}{branch.prettyTitle}"
+# Normal PR to master:   "My Feature Title"
+# Normal PR to develop:  "[develop]: My Feature Title"
+# Conflict PR:           "[DEVELOP CONFLICT]: My Feature Title"
+```
 
 ---
 
