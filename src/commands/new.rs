@@ -2,8 +2,8 @@ use anyhow::Result;
 use colored::Colorize;
 use inquire::{MultiSelect, Select, Text};
 
-use super::run_repo_cmd;
-use crate::config::{Config, RepoConfig, RepoType, expand_tilde};
+use super::{HookContext, execute_hook_decisions, merged_hooks, prompt_hook_confirmations, run_hooks_for, run_repo_cmd};
+use crate::config::{Config, HookWhen, RepoConfig, RepoType, expand_tilde};
 use crate::git;
 use crate::jira;
 
@@ -103,6 +103,22 @@ pub async fn run(config: &Config, dry_run: bool, ticket: Option<&str>) -> Result
             RepoType::Standard => repo_root.clone(),
         };
 
+        // Pre-hooks
+        {
+            let hooks = merged_hooks(config.hooks.as_ref(), repo.hooks.as_ref());
+            run_hooks_for(
+                &hooks,
+                HookWhen::Pre,
+                &HookContext {
+                    command: "new",
+                    repo: &repo,
+                    branch_name: Some(&branch_name),
+                    branch_path: None,
+                },
+                dry_run,
+            )?;
+        }
+
         // Update the base branch before branching off it.
         let remote = repo.remote();
         match repo.repo_type {
@@ -198,18 +214,31 @@ pub async fn run(config: &Config, dry_run: bool, ticket: Option<&str>) -> Result
             }
         }
 
-        // 10. Post-creation commands
+        // 10. Post-creation commands + hooks
+        // Prompt for optional hooks BEFORE running commands (e.g. `open` may steal focus).
+        let branch_path_str = branch_path.to_string_lossy().to_string();
+        let post_hook_ctx = HookContext {
+            command: "new",
+            repo: &repo,
+            branch_name: Some(&branch_name),
+            branch_path: Some(&branch_path_str),
+        };
+        let post_hook_decisions = {
+            let hooks = merged_hooks(config.hooks.as_ref(), repo.hooks.as_ref());
+            prompt_hook_confirmations(&hooks, HookWhen::Post, &post_hook_ctx, dry_run)?
+        };
+
         let cmds = repo.commands.as_deref().unwrap_or(&[]);
         if !cmds.is_empty() {
-            let branch_path_str = branch_path.to_string_lossy().to_string();
             let selected =
                 MultiSelect::new(&format!("Run commands for {}?", repo.name), cmds.to_vec())
                     .prompt()?;
-
             for cmd in selected {
                 run_repo_cmd(&cmd, &branch_path_str, dry_run)?;
             }
         }
+
+        execute_hook_decisions(&post_hook_decisions, &post_hook_ctx, dry_run)?;
     }
 
     Ok(())

@@ -4,8 +4,8 @@ use inquire::Select;
 use std::fmt;
 use tokio::task::JoinSet;
 
-use super::run_repo_cmd;
-use crate::config::{Config, RepoConfig, RepoType, expand_tilde};
+use super::{HookContext, execute_hook_decisions, merged_hooks, prompt_hook_confirmations, run_repo_cmd};
+use crate::config::{Config, HookWhen, RepoConfig, RepoType, expand_tilde};
 use crate::git::{WorktreeInfo, is_dirty, list_worktrees};
 
 struct WorktreeOption {
@@ -139,6 +139,24 @@ pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
         .and_then(|cmds| cmds.iter().find(|c| c.command == "open"))
         .cloned();
 
+    let hook_ctx = HookContext {
+        command: "open",
+        repo: &selected.repo,
+        branch_name: Some(&selected.info.branch),
+        branch_path: Some(&selected.info.path),
+    };
+    let hooks = merged_hooks(config.hooks.as_ref(), selected.repo.hooks.as_ref());
+
+    // Pre-hooks (run normally — open hasn't stolen focus yet)
+    {
+        use super::run_hooks_for;
+        run_hooks_for(&hooks, HookWhen::Pre, &hook_ctx, dry_run)?;
+    }
+
+    // Prompt for optional post-hooks BEFORE open steals focus.
+    let post_hook_decisions =
+        prompt_hook_confirmations(&hooks, HookWhen::Post, &hook_ctx, dry_run)?;
+
     match open_cmd {
         Some(cmd) => run_repo_cmd(&cmd, &selected.info.path, dry_run)?,
         None => println!(
@@ -146,6 +164,8 @@ pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
             selected.repo.name, selected.info.path
         ),
     }
+
+    execute_hook_decisions(&post_hook_decisions, &hook_ctx, dry_run)?;
 
     Ok(())
 }

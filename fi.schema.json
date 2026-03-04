@@ -128,6 +128,11 @@
           "type": "array",
           "description": "Custom commands available after creating or opening a worktree/branch.",
           "items": { "$ref": "#/$defs/command" }
+        },
+        "hooks": {
+          "type": "array",
+          "description": "Lifecycle hooks that run before or after fi commands (new, open, pr, cull, sync).",
+          "items": { "$ref": "#/$defs/hook" }
         }
       }
     },
@@ -148,6 +153,61 @@
         "ask": {
           "$ref": "#/$defs/askMap",
           "description": "Optional fields to prompt the user for before rendering the PR. Values are available as {ask.<fieldName>} in title/body templates."
+        }
+      }
+    },
+    "hook": {
+      "type": "object",
+      "description": "A lifecycle hook that runs before (pre) or after (post) a fi command.",
+      "required": ["trigger", "when", "runner", "run"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Display name shown when prompting or logging."
+        },
+        "trigger": {
+          "description": "fi subcommand(s) this hook applies to. Allowed values: new, open, pr, cull, sync.",
+          "oneOf": [
+            { "type": "string", "enum": ["new", "open", "pr", "cull", "sync"] },
+            {
+              "type": "array",
+              "items": { "type": "string", "enum": ["new", "open", "pr", "cull", "sync"] },
+              "minItems": 1
+            }
+          ]
+        },
+        "when": {
+          "type": "string",
+          "enum": ["pre", "post"],
+          "description": "Whether to run before (pre) or after (post) the command."
+        },
+        "optional": {
+          "type": "boolean",
+          "description": "If true, the user is asked whether to run this hook. Default: false.",
+          "default": false
+        },
+        "defaultOn": {
+          "type": "boolean",
+          "description": "Default answer when optional is true. Default: true (run by default).",
+          "default": true
+        },
+        "runner": {
+          "type": "string",
+          "description": "Executable used to run the script, e.g. \"fish\", \"bash\"."
+        },
+        "run": {
+          "type": "string",
+          "description": "The script body. Use YAML block scalar (|) for multi-line scripts."
+        },
+        "ask": {
+          "$ref": "#/$defs/askMap",
+          "description": "Fields to prompt the user for before running this hook."
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment variables set when the script runs. Values support: {branch.name}, {branch.path}, {repo.root}, {repo.name}, {repo.remote}, {ask.<name>}.",
+          "additionalProperties": { "type": "string" }
         }
       }
     },

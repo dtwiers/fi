@@ -11,6 +11,7 @@ pub struct Config {
     pub jira: JiraConfig,
     pub common: CommonConfig,
     pub repos: Vec<RepoConfig>,
+    pub hooks: Option<Vec<HookConfig>>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -94,6 +95,7 @@ pub struct RepoConfig {
     pub pr_to_branches: Option<Vec<String>>,
     #[serde(rename = "prTemplate")]
     pub pr_template: Option<PrTemplate>,
+    pub hooks: Option<Vec<HookConfig>>,
 }
 
 impl RepoConfig {
@@ -135,6 +137,67 @@ pub struct RepoCommand {
 impl fmt::Display for RepoCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.command)
+    }
+}
+
+// ── Hooks ─────────────────────────────────────────────────────────────────────
+
+/// Which timing a hook runs at relative to a command.
+#[derive(Debug, Deserialize, Clone, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum HookWhen {
+    Pre,
+    Post,
+}
+
+/// The fi subcommand(s) a hook is attached to. Accepts a single string or a list.
+#[derive(Debug, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum HookOn {
+    One(String),
+    Many(Vec<String>),
+}
+
+impl HookOn {
+    pub fn matches(&self, command: &str) -> bool {
+        match self {
+            Self::One(s) => s == command,
+            Self::Many(v) => v.iter().any(|s| s == command),
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct HookConfig {
+    /// Optional display name shown when prompting or logging.
+    pub name: Option<String>,
+    /// fi subcommand(s) this hook applies to: "new", "open", "pr", "cull", "sync".
+    pub trigger: HookOn,
+    /// Whether to run before (`pre`) or after (`post`) the command.
+    pub when: HookWhen,
+    /// If true, the user is asked whether to run the hook.
+    #[serde(default)]
+    pub optional: bool,
+    /// Default answer when the hook is optional. Defaults to `true` (run by default).
+    #[serde(rename = "defaultOn", default = "default_true")]
+    pub default_on: bool,
+    pub runner: String,
+    pub ask: Option<HashMap<String, AskField>>,
+    pub env: Option<HashMap<String, String>>,
+    pub run: String,
+}
+
+impl fmt::Display for HookConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            self.name.as_deref().unwrap_or("hook")
+        )
     }
 }
 

@@ -8,7 +8,8 @@ use std::process::Command;
 use std::time::Duration;
 use tokio::task::JoinSet;
 
-use crate::config::{Config, RepoConfig, RepoType, expand_tilde};
+use super::{HookContext, merged_hooks, run_hooks_for};
+use crate::config::{Config, HookWhen, RepoConfig, RepoType, expand_tilde};
 use crate::git::{WorktreeInfo, list_worktrees};
 use crate::vlog;
 
@@ -277,6 +278,26 @@ pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
 
     mp.clear()?;
     println!("{}", "Done.".green().bold());
+
+    // Post-hooks (per repo, no specific branch context for cull)
+    for repo in &config.repos {
+        if repo.repo_type != RepoType::Worktree {
+            continue;
+        }
+        let hooks = merged_hooks(config.hooks.as_ref(), repo.hooks.as_ref());
+        run_hooks_for(
+            &hooks,
+            HookWhen::Post,
+            &HookContext {
+                command: "cull",
+                repo,
+                branch_name: None,
+                branch_path: None,
+            },
+            dry_run,
+        )?;
+    }
+
     Ok(())
 }
 
