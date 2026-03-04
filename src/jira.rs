@@ -47,14 +47,7 @@ impl fmt::Display for JiraIssue {
             .as_ref()
             .map(|a| format!(" ({})", a.display_name).cyan().to_string())
             .unwrap_or_default();
-        write!(
-            f,
-            "{} {} {}{}",
-            key,
-            status,
-            truncated.dimmed(),
-            assignee
-        )
+        write!(f, "{} {} {}{}", key, status, truncated.dimmed(), assignee)
     }
 }
 
@@ -95,12 +88,26 @@ async fn jira_get<T: for<'de> Deserialize<'de>>(
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         let hint = match status.as_u16() {
-            401 => "\n  → Your Jira token may be invalid or expired. Regenerate it and update the env var.",
+            401 => {
+                "\n  → Your Jira token may be invalid or expired. Regenerate it and update the env var."
+            }
             403 => "\n  → Your Jira account may lack permission to access this board or resource.",
-            404 => "\n  → Board ID or quick-filter ID not found. Check 'boardId' and 'quickFilterId' in your config.",
+            404 => {
+                "\n  → Board ID or quick-filter ID not found. Check 'boardId' and 'quickFilterId' in your config."
+            }
             _ => "",
         };
-        anyhow::bail!("Jira API error {} for {}{}{}", status, url, hint, if body.is_empty() { String::new() } else { format!("\n  Response: {}", body) });
+        anyhow::bail!(
+            "Jira API error {} for {}{}{}",
+            status,
+            url,
+            hint,
+            if body.is_empty() {
+                String::new()
+            } else {
+                format!("\n  Response: {}", body)
+            }
+        );
     }
 
     Ok(response.json().await?)

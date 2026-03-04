@@ -5,18 +5,18 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
 
+use super::collect_ask_values;
 use crate::config::{Config, RepoConfig, RepoType, expand_tilde};
 use crate::git;
 use crate::template::{render_template, unescape};
-use super::collect_ask_values;
 
 // ── Branch parsing ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct BranchInfo {
-    pub prefix: String,      // e.g. "fix"
-    pub ticket: String,      // e.g. "CAPY-1234"
-    pub slug: String,        // e.g. "some-feature"
+    pub prefix: String,       // e.g. "fix"
+    pub ticket: String,       // e.g. "CAPY-1234"
+    pub slug: String,         // e.g. "some-feature"
     pub pretty_title: String, // e.g. "Some Feature"
     /// Set when this IS a conflict branch (e.g. "DEVELOP").
     pub conflict_base: Option<String>,
@@ -77,7 +77,13 @@ pub fn parse_branch(branch: &str, branch_format: &str) -> Option<BranchInfo> {
     };
 
     let pretty_title = to_title_case(&slug);
-    Some(BranchInfo { prefix, ticket, slug, pretty_title, conflict_base })
+    Some(BranchInfo {
+        prefix,
+        ticket,
+        slug,
+        pretty_title,
+        conflict_base,
+    })
 }
 
 /// Return the index just past the `PROJECT-1234` ticket at the start of `s`.
@@ -85,15 +91,25 @@ fn ticket_end_index(s: &str) -> Option<usize> {
     let bytes = s.as_bytes();
     let mut i = 0;
     // One or more ASCII uppercase letters (project key).
-    while i < bytes.len() && bytes[i].is_ascii_uppercase() { i += 1; }
-    if i == 0 { return None; }
+    while i < bytes.len() && bytes[i].is_ascii_uppercase() {
+        i += 1;
+    }
+    if i == 0 {
+        return None;
+    }
     // Literal '-'.
-    if i >= bytes.len() || bytes[i] != b'-' { return None; }
+    if i >= bytes.len() || bytes[i] != b'-' {
+        return None;
+    }
     i += 1;
     // One or more ASCII digits.
     let num_start = i;
-    while i < bytes.len() && bytes[i].is_ascii_digit() { i += 1; }
-    if i == num_start { return None; }
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == num_start {
+        return None;
+    }
     Some(i)
 }
 
@@ -122,9 +138,13 @@ fn to_title_case(slug: &str) -> String {
     slug.split('-')
         .enumerate()
         .map(|(i, word)| {
-            if word.len() > 1 && word.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()) {
-                word.to_string()
-            } else if i > 0 && MINOR_WORDS.contains(&word) {
+            // Keep ALL_CAPS acronyms (e.g. API, WY) and minor-words as-is.
+            if (word.len() > 1
+                && word
+                    .chars()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit()))
+                || (i > 0 && MINOR_WORDS.contains(&word))
+            {
                 word.to_string()
             } else {
                 let mut s = word.to_string();
@@ -151,10 +171,10 @@ pub enum PrStatus {
 impl PrStatus {
     fn label(&self) -> &str {
         match self {
-            PrStatus::None       => "none",
-            PrStatus::Open(_)    => "open",
-            PrStatus::Merged(_)  => "merged",
-            PrStatus::Closed(_)  => "closed",
+            PrStatus::None => "none",
+            PrStatus::Open(_) => "open",
+            PrStatus::Merged(_) => "merged",
+            PrStatus::Closed(_) => "closed",
         }
     }
 }
@@ -163,30 +183,40 @@ fn check_pr_status(head: &str, base: &str) -> PrStatus {
     // gh pr list scoped to this repo is fine — `gh` picks up the remote automatically.
     let out = Command::new("gh")
         .args([
-            "pr", "list",
-            "--head", head,
-            "--base", base,
-            "--state", "all",
-            "--json", "url,state",
-            "--limit", "1",
+            "pr",
+            "list",
+            "--head",
+            head,
+            "--base",
+            base,
+            "--state",
+            "all",
+            "--json",
+            "url,state",
+            "--limit",
+            "1",
         ])
         .output();
 
     let Ok(out) = out else { return PrStatus::None };
-    if !out.status.success() { return PrStatus::None; }
+    if !out.status.success() {
+        return PrStatus::None;
+    }
 
     let text = String::from_utf8_lossy(&out.stdout);
     let text = text.trim();
-    if text == "[]" || text.is_empty() { return PrStatus::None; }
+    if text == "[]" || text.is_empty() {
+        return PrStatus::None;
+    }
 
     // Parse the first entry manually (avoid full JSON dep for two fields).
     let url = extract_json_str(text, "url").unwrap_or_default();
     let state = extract_json_str(text, "state").unwrap_or_default();
 
     match state.to_uppercase().as_str() {
-        "OPEN"   => PrStatus::Open(url),
+        "OPEN" => PrStatus::Open(url),
         "MERGED" => PrStatus::Merged(url),
-        _        => PrStatus::Closed(url),
+        _ => PrStatus::Closed(url),
     }
 }
 
@@ -223,20 +253,49 @@ impl TargetAssessment {
     fn summary(&self) -> String {
         if self.has_conflict {
             if !self.conflict_branch_exists {
-                format!("{} {} (conflict branch needed)", "⚠".yellow(), self.target.magenta())
+                format!(
+                    "{} {} (conflict branch needed)",
+                    "⚠".yellow(),
+                    self.target.magenta()
+                )
             } else if self.conflict_unresolved {
-                format!("{} {} (conflicts unresolved in {})", "⚡".yellow(), self.target.magenta(), self.conflict_branch.cyan())
+                format!(
+                    "{} {} (conflicts unresolved in {})",
+                    "⚡".yellow(),
+                    self.target.magenta(),
+                    self.conflict_branch.cyan()
+                )
             } else if !self.feature_merged_in {
-                format!("{} {} (feature not merged into {})", "⚡".yellow(), self.target.magenta(), self.conflict_branch.cyan())
+                format!(
+                    "{} {} (feature not merged into {})",
+                    "⚡".yellow(),
+                    self.target.magenta(),
+                    self.conflict_branch.cyan()
+                )
             } else if self.conflict_pr == PrStatus::None {
-                format!("{} {} (conflict branch ready → PR needed)", "●".cyan(), self.target.magenta())
+                format!(
+                    "{} {} (conflict branch ready → PR needed)",
+                    "●".cyan(),
+                    self.target.magenta()
+                )
             } else {
-                format!("{} {} ({} PR: {})", "✓".green(), self.target.magenta(), self.conflict_branch.cyan(), self.conflict_pr.label())
+                format!(
+                    "{} {} ({} PR: {})",
+                    "✓".green(),
+                    self.target.magenta(),
+                    self.conflict_branch.cyan(),
+                    self.conflict_pr.label()
+                )
             }
         } else if self.main_pr == PrStatus::None {
             format!("{} {} (PR needed)", "○".cyan(), self.target)
         } else {
-            format!("{} {} (PR: {})", "✓".green(), self.target, self.main_pr.label())
+            format!(
+                "{} {} (PR: {})",
+                "✓".green(),
+                self.target,
+                self.main_pr.label()
+            )
         }
     }
 }
@@ -270,14 +329,18 @@ pub async fn assess_all_targets(
         let root = root.clone();
         let feature_branch = feature_branch.to_string();
         let conflict_branch = config.common.render_branch(
-            &info.prefix, &info.ticket, &info.slug, Some(&target.to_uppercase()),
+            &info.prefix,
+            &info.ticket,
+            &info.slug,
+            Some(&target.to_uppercase()),
         );
         let is_default = target == default_branch;
         let merge_conflict_path = repo.merge_conflict_path.clone();
         let repo_type = repo.repo_type.clone();
 
         handles.push(tokio::task::spawn_blocking(move || -> TargetAssessment {
-            let has_conflict = !dry_run && git::check_merge_conflicts(&root, &feature_branch, &target);
+            let has_conflict =
+                !dry_run && git::check_merge_conflicts(&root, &feature_branch, &target);
 
             let conflict_branch_exists = git::branch_exists(&root, &conflict_branch);
 
@@ -288,16 +351,21 @@ pub async fn assess_all_targets(
             let conflict_worktree_path = if conflict_branch_exists {
                 git::find_worktree_for_branch(&root, &conflict_branch)
             } else if let (RepoType::Worktree, Some(mcp)) = (&repo_type, &merge_conflict_path) {
-                Some(root.join(mcp).join(&conflict_branch)
-                    .to_string_lossy().to_string())
+                Some(
+                    root.join(mcp)
+                        .join(&conflict_branch)
+                        .to_string_lossy()
+                        .to_string(),
+                )
             } else {
                 None
             };
 
             let conflict_unresolved = conflict_branch_exists
                 && feature_merged_in
-                && conflict_worktree_path.as_deref()
-                    .map(|p| git::has_unresolved_conflicts(p))
+                && conflict_worktree_path
+                    .as_deref()
+                    .map(git::has_unresolved_conflicts)
                     .unwrap_or_else(|| git::has_unresolved_conflicts(root.to_str().unwrap_or(".")));
 
             let conflict_pr = if has_conflict {
@@ -339,8 +407,12 @@ pub fn detect_context(config: &Config) -> Result<Option<(RepoConfig, String)>> {
         .args(["rev-parse", "--git-common-dir"])
         .output();
 
-    let Ok(git_out) = git_out else { return Ok(None) };
-    if !git_out.status.success() { return Ok(None); }
+    let Ok(git_out) = git_out else {
+        return Ok(None);
+    };
+    if !git_out.status.success() {
+        return Ok(None);
+    }
 
     let raw = String::from_utf8_lossy(&git_out.stdout).trim().to_string();
     let git_common_dir: PathBuf = if raw.starts_with('/') {
@@ -355,13 +427,21 @@ pub fn detect_context(config: &Config) -> Result<Option<(RepoConfig, String)>> {
         .args(["branch", "--show-current"])
         .output()?;
 
-    if !branch_out.status.success() { return Ok(None); }
-    let branch = String::from_utf8_lossy(&branch_out.stdout).trim().to_string();
-    if branch.is_empty() { return Ok(None); }
+    if !branch_out.status.success() {
+        return Ok(None);
+    }
+    let branch = String::from_utf8_lossy(&branch_out.stdout)
+        .trim()
+        .to_string();
+    if branch.is_empty() {
+        return Ok(None);
+    }
 
     for repo in &config.repos {
         let root = expand_tilde(&repo.root);
-        let root = root.canonicalize().unwrap_or_else(|_| expand_tilde(&repo.root));
+        let root = root
+            .canonicalize()
+            .unwrap_or_else(|_| expand_tilde(&repo.root));
 
         let matches = match repo.repo_type {
             RepoType::Worktree => git_common_dir == root,
@@ -421,11 +501,18 @@ fn build_pr_vars(
     ask_vals: &HashMap<String, String>,
 ) -> HashMap<String, String> {
     let mut vars = HashMap::new();
-    let target_prefix = if target == default_branch { String::new() } else { target.to_string() };
+    let target_prefix = if target == default_branch {
+        String::new()
+    } else {
+        target.to_string()
+    };
     vars.insert("pr.targetPrefix".into(), target_prefix);
     vars.insert("branch.prettyTitle".into(), pretty_title.to_string());
     vars.insert("ticket.key".into(), ticket.to_string());
-    vars.insert("pr.conflictBase".into(), conflict_base.unwrap_or("").to_string());
+    vars.insert(
+        "pr.conflictBase".into(),
+        conflict_base.unwrap_or("").to_string(),
+    );
     for (k, v) in ask_vals {
         vars.insert(format!("ask.{}", k), v.clone());
     }
@@ -436,22 +523,41 @@ fn create_pr(spec: &PrSpec, draft: bool, dry_run: bool) -> bool {
     if dry_run {
         println!(
             "{} gh pr create --base {} --head {} --title {:?}",
-            "[dry-run]".yellow(), spec.base, spec.head, spec.title
+            "[dry-run]".yellow(),
+            spec.base,
+            spec.head,
+            spec.title
         );
         return true;
     }
 
-    println!("Creating PR {} → {}…", spec.head.cyan(), spec.base.magenta());
+    println!(
+        "Creating PR {} → {}…",
+        spec.head.cyan(),
+        spec.base.magenta()
+    );
     let mut cmd = Command::new("gh");
-    cmd.args(["pr", "create",
-        "--base", &spec.base,
-        "--head", &spec.head,
-        "--title", &spec.title,
-        "--body", &spec.body,
+    cmd.args([
+        "pr",
+        "create",
+        "--base",
+        &spec.base,
+        "--head",
+        &spec.head,
+        "--title",
+        &spec.title,
+        "--body",
+        &spec.body,
     ]);
-    if draft { cmd.arg("--draft"); }
+    if draft {
+        cmd.arg("--draft");
+    }
     let ok = cmd.status().map(|s| s.success()).unwrap_or(false);
-    if ok { println!("  {}", "✓ Created".green()); } else { eprintln!("  {} Failed", "✗".red()); }
+    if ok {
+        println!("  {}", "✓ Created".green());
+    } else {
+        eprintln!("  {} Failed", "✗".red());
+    }
     ok
 }
 
@@ -469,10 +575,9 @@ fn create_conflict_branch(
 
     match repo.repo_type {
         RepoType::Worktree => {
-            let mcp = repo.merge_conflict_path.as_deref()
-                .ok_or_else(|| anyhow::anyhow!(
-                    "mergeConflictPath not set for worktree repo {}", repo.name
-                ))?;
+            let mcp = repo.merge_conflict_path.as_deref().ok_or_else(|| {
+                anyhow::anyhow!("mergeConflictPath not set for worktree repo {}", repo.name)
+            })?;
             let wt_path = root.join(mcp).join(&assessment.conflict_branch);
             println!(
                 "Creating conflict worktree {} based on {}…",
@@ -483,7 +588,9 @@ fn create_conflict_branch(
                 println!(
                     "{} git worktree add {} -b {} {}",
                     "[dry-run]".yellow(),
-                    wt_path.display(), assessment.conflict_branch, remote_base
+                    wt_path.display(),
+                    assessment.conflict_branch,
+                    remote_base
                 );
             } else {
                 git::create_worktree(&root, &wt_path, &assessment.conflict_branch, &remote_base)?;
@@ -492,7 +599,10 @@ fn create_conflict_branch(
                 if clean {
                     println!("  {} Clean merge — no conflicts!", "✓".green());
                 } else {
-                    println!("  {} Merge conflicts detected. Resolve, then run: fi pr --continue", "⚡".yellow());
+                    println!(
+                        "  {} Merge conflicts detected. Resolve, then run: fi pr --continue",
+                        "⚡".yellow()
+                    );
                 }
             }
             Ok(Some(wt_path.to_string_lossy().to_string()))
@@ -506,7 +616,9 @@ fn create_conflict_branch(
             if dry_run {
                 println!(
                     "{} git checkout -b {} {}",
-                    "[dry-run]".yellow(), assessment.conflict_branch, remote_base
+                    "[dry-run]".yellow(),
+                    assessment.conflict_branch,
+                    remote_base
                 );
             } else {
                 git::create_branch(&root, &assessment.conflict_branch, &remote_base)?;
@@ -515,7 +627,10 @@ fn create_conflict_branch(
                 if clean {
                     println!("  {} Clean merge — no conflicts!", "✓".green());
                 } else {
-                    println!("  {} Merge conflicts detected. Resolve, then run: fi pr --continue", "⚡".yellow());
+                    println!(
+                        "  {} Merge conflicts detected. Resolve, then run: fi pr --continue",
+                        "⚡".yellow()
+                    );
                 }
             }
             Ok(None)
@@ -529,19 +644,30 @@ pub async fn run(config: &Config, dry_run: bool, continue_mode: bool) -> Result<
     // Detect context — could be on the feature branch OR a conflict branch.
     let (repo, current_branch) = match detect_context(config)? {
         Some(ctx) => {
-            println!("Detected: {} on {}", ctx.0.name.cyan(), ctx.1.green().bold());
+            println!(
+                "Detected: {} on {}",
+                ctx.0.name.cyan(),
+                ctx.1.green().bold()
+            );
             ctx
         }
         None => {
             let repo = Select::new("Which repo?", config.repos.clone()).prompt()?;
             let branches = list_feature_branches(&repo)?;
-            anyhow::ensure!(!branches.is_empty(), "No feature branches found in {}", repo.name);
+            anyhow::ensure!(
+                !branches.is_empty(),
+                "No feature branches found in {}",
+                repo.name
+            );
             let branch = Select::new("Which branch?", branches).prompt()?;
             (repo, branch)
         }
     };
 
-    let branch_fmt = config.common.branch_format.as_deref()
+    let branch_fmt = config
+        .common
+        .branch_format
+        .as_deref()
         .unwrap_or("{branchPrefix}/{ticket.key}-{slug}");
 
     let parsed = parse_branch(&current_branch, branch_fmt)
@@ -557,7 +683,9 @@ pub async fn run(config: &Config, dry_run: bool, continue_mode: bool) -> Result<
             );
         }
         // Derive the original feature branch by rendering without conflictBase.
-        config.common.render_branch(&parsed.prefix, &parsed.ticket, &parsed.slug, None)
+        config
+            .common
+            .render_branch(&parsed.prefix, &parsed.ticket, &parsed.slug, None)
     } else {
         current_branch.clone()
     };
@@ -571,17 +699,24 @@ pub async fn run(config: &Config, dry_run: bool, continue_mode: bool) -> Result<
     };
 
     // Let the user confirm / correct ticket and title.
-    let ticket = Text::new("Ticket:").with_default(&feature_info.ticket).prompt()?;
-    let pretty_title = Text::new("Title:").with_default(&feature_info.pretty_title).prompt()?;
+    let ticket = Text::new("Ticket:")
+        .with_default(&feature_info.ticket)
+        .prompt()?;
+    let pretty_title = Text::new("Title:")
+        .with_default(&feature_info.pretty_title)
+        .prompt()?;
 
-    let tmpl = repo.pr_template.as_ref()
+    let tmpl = repo
+        .pr_template
+        .as_ref()
         .ok_or_else(|| anyhow::anyhow!("No prTemplate configured for {}", repo.name))?;
     let default_branch = repo.default_branch.as_deref().unwrap_or("master");
 
     let ask_vals = collect_ask_values(tmpl.ask.as_ref())?;
 
     // Assess all targets (fetches first, uses origin/* refs).
-    let assessments = assess_all_targets(&repo, &feature_branch, &feature_info, config, dry_run).await?;
+    let assessments =
+        assess_all_targets(&repo, &feature_branch, &feature_info, config, dry_run).await?;
 
     // Show the full picture.
     println!();
@@ -591,106 +726,166 @@ pub async fn run(config: &Config, dry_run: bool, continue_mode: bool) -> Result<
     println!();
 
     // In continue mode: if currently on a conflict branch, handle this PR first.
-    if continue_mode {
-        if let Some(ref cb) = parsed.conflict_base {
-            // Find matching assessment.
-            let target = cb.to_lowercase();
-            let a = assessments.iter().find(|a| a.target == target);
+    if continue_mode && let Some(ref cb) = parsed.conflict_base {
+        // Find matching assessment.
+        let target = cb.to_lowercase();
+        let a = assessments.iter().find(|a| a.target == target);
 
-            if let Some(a) = a {
-                if a.conflict_unresolved {
-                    anyhow::bail!(
-                        "Unresolved merge conflicts remain in {}. Resolve them, stage changes, \
-                         and commit before running `fi pr --continue`.",
-                        a.conflict_branch
-                    );
-                }
-                // Build and create the PR for this conflict branch.
-                let vars = build_pr_vars(
-                    &feature_info, &ticket, &pretty_title,
-                    &a.target, default_branch, Some(cb), &ask_vals,
+        if let Some(a) = a {
+            if a.conflict_unresolved {
+                anyhow::bail!(
+                    "Unresolved merge conflicts remain in {}. Resolve them, stage changes, \
+                     and commit before running `fi pr --continue`.",
+                    a.conflict_branch
                 );
-                let title_default = unescape(&render_template(&tmpl.title, &vars));
-                let body = unescape(&render_template(&tmpl.body, &vars));
+            }
+            // Build and create the PR for this conflict branch.
+            let vars = build_pr_vars(
+                &feature_info,
+                &ticket,
+                &pretty_title,
+                &a.target,
+                default_branch,
+                Some(cb),
+                &ask_vals,
+            );
+            let title_default = unescape(&render_template(&tmpl.title, &vars));
+            let body = unescape(&render_template(&tmpl.body, &vars));
 
-                println!("{}", "── Body preview ────────────────────────────".dimmed());
-                for line in body.lines() { println!("  {}", line.dimmed()); }
-                println!("{}", "────────────────────────────────────────────".dimmed());
+            println!(
+                "{}",
+                "── Body preview ────────────────────────────".dimmed()
+            );
+            for line in body.lines() {
+                println!("  {}", line.dimmed());
+            }
+            println!(
+                "{}",
+                "────────────────────────────────────────────".dimmed()
+            );
 
-                let title = Text::new(&format!("Conflict PR title (→ {}):", a.target))
-                    .with_default(&title_default).prompt()?;
-                let draft = Confirm::new("Create as draft?").with_default(false).prompt()?;
+            let title = Text::new(&format!("Conflict PR title (→ {}):", a.target))
+                .with_default(&title_default)
+                .prompt()?;
+            let draft = Confirm::new("Create as draft?")
+                .with_default(false)
+                .prompt()?;
 
-                if Confirm::new("Create this PR?").with_default(true).prompt()? {
-                    create_pr(&PrSpec {
+            if Confirm::new("Create this PR?")
+                .with_default(true)
+                .prompt()?
+            {
+                create_pr(
+                    &PrSpec {
                         head: a.conflict_branch.clone(),
                         base: a.target.clone(),
                         title,
                         body,
-                    }, draft, dry_run);
-                }
+                    },
+                    draft,
+                    dry_run,
+                );
             }
         }
     }
 
     // Check default branch — hard fail if it conflicts.
     let default_assessment = assessments.iter().find(|a| a.is_default);
-    if let Some(da) = default_assessment {
-        if da.has_conflict && da.main_pr == PrStatus::None {
-            anyhow::bail!(
-                "Merge conflicts detected between {} and origin/{}! \
-                 Resolve conflicts on {} before proceeding.",
-                feature_branch.cyan(), da.target.magenta(), da.target
-            );
-        }
+    if let Some(da) = default_assessment
+        && da.has_conflict
+        && da.main_pr == PrStatus::None
+    {
+        anyhow::bail!(
+            "Merge conflicts detected between {} and origin/{}! \
+             Resolve conflicts on {} before proceeding.",
+            feature_branch.cyan(),
+            da.target.magenta(),
+            da.target
+        );
     }
 
     // Non-conflicting targets: select which PRs to create.
-    let clean_targets_needing_prs: Vec<&TargetAssessment> = assessments.iter()
+    let clean_targets_needing_prs: Vec<&TargetAssessment> = assessments
+        .iter()
         .filter(|a| !a.has_conflict && a.main_pr == PrStatus::None)
         .collect();
 
     if !clean_targets_needing_prs.is_empty() {
-        let target_names: Vec<String> = clean_targets_needing_prs.iter()
-            .map(|a| a.target.clone()).collect();
+        let target_names: Vec<String> = clean_targets_needing_prs
+            .iter()
+            .map(|a| a.target.clone())
+            .collect();
         let selected = MultiSelect::new("Create PRs to:", target_names)
-            .with_all_selected_by_default().prompt()?;
+            .with_all_selected_by_default()
+            .prompt()?;
 
         if !selected.is_empty() {
             let mut prs = Vec::new();
             for target in &selected {
                 let vars = build_pr_vars(
-                    &feature_info, &ticket, &pretty_title,
-                    target, default_branch, None, &ask_vals,
+                    &feature_info,
+                    &ticket,
+                    &pretty_title,
+                    target,
+                    default_branch,
+                    None,
+                    &ask_vals,
                 );
                 let title_default = unescape(&render_template(&tmpl.title, &vars));
                 let body = unescape(&render_template(&tmpl.body, &vars));
 
-                println!("{}", "── Body preview ────────────────────────────".dimmed());
-                for line in body.lines() { println!("  {}", line.dimmed()); }
-                println!("{}", "────────────────────────────────────────────".dimmed());
+                println!(
+                    "{}",
+                    "── Body preview ────────────────────────────".dimmed()
+                );
+                for line in body.lines() {
+                    println!("  {}", line.dimmed());
+                }
+                println!(
+                    "{}",
+                    "────────────────────────────────────────────".dimmed()
+                );
 
                 let title = Text::new(&format!("Title (→ {}):", target))
-                    .with_default(&title_default).prompt()?;
-                prs.push(PrSpec { head: feature_branch.clone(), base: target.clone(), title, body });
+                    .with_default(&title_default)
+                    .prompt()?;
+                prs.push(PrSpec {
+                    head: feature_branch.clone(),
+                    base: target.clone(),
+                    title,
+                    body,
+                });
             }
 
-            let draft = Confirm::new("Create as drafts?").with_default(false).prompt()?;
+            let draft = Confirm::new("Create as drafts?")
+                .with_default(false)
+                .prompt()?;
 
             println!();
             for p in &prs {
-                println!("  {} → {}: {}", p.head.cyan(), p.base.magenta(), p.title.green().bold());
+                println!(
+                    "  {} → {}: {}",
+                    p.head.cyan(),
+                    p.base.magenta(),
+                    p.title.green().bold()
+                );
             }
             println!();
 
-            if Confirm::new("Create these PRs?").with_default(true).prompt()? {
-                for p in &prs { create_pr(p, draft, dry_run); }
+            if Confirm::new("Create these PRs?")
+                .with_default(true)
+                .prompt()?
+            {
+                for p in &prs {
+                    create_pr(p, draft, dry_run);
+                }
             }
         }
     }
 
     // Conflicting non-default targets: create conflict branches as needed.
-    let needs_conflict_branch: Vec<&TargetAssessment> = assessments.iter()
+    let needs_conflict_branch: Vec<&TargetAssessment> = assessments
+        .iter()
         .filter(|a| !a.is_default && a.has_conflict && !a.conflict_branch_exists)
         .collect();
 
@@ -701,11 +896,19 @@ pub async fn run(config: &Config, dry_run: bool, continue_mode: bool) -> Result<
             "⚠".yellow()
         );
         for a in &needs_conflict_branch {
-            println!("  {} → {}", feature_branch.cyan(), a.conflict_branch.magenta());
+            println!(
+                "  {} → {}",
+                feature_branch.cyan(),
+                a.conflict_branch.magenta()
+            );
         }
         println!();
 
-        if !dry_run && !Confirm::new("Create conflict branches?").with_default(true).prompt()? {
+        if !dry_run
+            && !Confirm::new("Create conflict branches?")
+                .with_default(true)
+                .prompt()?
+        {
             println!("Skipping conflict branches.");
             return Ok(());
         }
@@ -714,17 +917,17 @@ pub async fn run(config: &Config, dry_run: bool, continue_mode: bool) -> Result<
             create_conflict_branch(&repo, a, &feature_branch, dry_run)?;
 
             // Offer to open the conflict worktree.
-            if let Some(ref wt_path) = a.conflict_worktree_path {
-                if let Some(cmds) = repo.commands.as_ref() {
-                    let open_cmd = cmds.iter().find(|c| c.command == "open");
-                    if let Some(cmd) = open_cmd {
-                        if !dry_run
-                            && Confirm::new(&format!("Open {} in your editor?", a.conflict_branch))
-                                .with_default(true).prompt()?
-                        {
-                            super::run_repo_cmd(cmd, wt_path, dry_run)?;
-                        }
-                    }
+            if let Some(ref wt_path) = a.conflict_worktree_path
+                && let Some(cmds) = repo.commands.as_ref()
+            {
+                let open_cmd = cmds.iter().find(|c| c.command == "open");
+                if let Some(cmd) = open_cmd
+                    && !dry_run
+                    && Confirm::new(&format!("Open {} in your editor?", a.conflict_branch))
+                        .with_default(true)
+                        .prompt()?
+                {
+                    super::run_repo_cmd(cmd, wt_path, dry_run)?;
                 }
             }
 
@@ -737,13 +940,15 @@ pub async fn run(config: &Config, dry_run: bool, continue_mode: bool) -> Result<
     }
 
     // Conflict branches that exist but haven't had the feature merged in.
-    let needs_merge: Vec<&TargetAssessment> = assessments.iter()
+    let needs_merge: Vec<&TargetAssessment> = assessments
+        .iter()
         .filter(|a| a.conflict_branch_exists && !a.feature_merged_in)
         .collect();
     for a in &needs_merge {
         println!(
             "  {} Feature branch not yet merged into {} — run `fi sync` to update",
-            "⚡".yellow(), a.conflict_branch.cyan()
+            "⚡".yellow(),
+            a.conflict_branch.cyan()
         );
     }
 
@@ -756,6 +961,8 @@ mod tests {
 
     const FMT: &str = "{branchPrefix}/{ticket.key}{conflictBase: '-$1'}-{slug}";
     const FMT_PLAIN: &str = "{branchPrefix}/{ticket.key}-{slug}";
+
+    // ── parse_branch ──────────────────────────────────────────────────────────
 
     #[test]
     fn parse_normal_branch() {
@@ -794,5 +1001,123 @@ mod tests {
         // A branch like fix/CAPY-1234-DEVELOP (no slug after) should not parse CB.
         let b = parse_branch("fix/CAPY-1234-DEVELOP", FMT).unwrap();
         assert!(b.conflict_base.is_none());
+    }
+
+    #[test]
+    fn parse_multi_segment_slug() {
+        let b = parse_branch("feat/PROJ-99-add-widget-to-dashboard", FMT).unwrap();
+        assert_eq!(b.prefix, "feat");
+        assert_eq!(b.ticket, "PROJ-99");
+        assert_eq!(b.slug, "add-widget-to-dashboard");
+        assert!(b.conflict_base.is_none());
+    }
+
+    #[test]
+    fn parse_requires_slash_prefix() {
+        assert!(parse_branch("CAPY-1234-some-feature", FMT).is_none());
+    }
+
+    #[test]
+    fn parse_requires_numeric_ticket_number() {
+        assert!(parse_branch("fix/CAPY-XYZ-some-feature", FMT).is_none());
+    }
+
+    #[test]
+    fn parse_chore_prefix() {
+        let b = parse_branch("chore/CAPY-42-update-deps", FMT).unwrap();
+        assert_eq!(b.prefix, "chore");
+        assert_eq!(b.ticket, "CAPY-42");
+        assert_eq!(b.slug, "update-deps");
+    }
+
+    // ── to_title_case ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn title_case_basic() {
+        assert_eq!(to_title_case("some-feature"), "Some Feature");
+    }
+
+    #[test]
+    fn title_case_minor_word_not_first() {
+        assert_eq!(to_title_case("fix-for-the-bug"), "Fix for the Bug");
+    }
+
+    #[test]
+    fn title_case_keeps_allcaps_acronym() {
+        assert_eq!(to_title_case("fix-WY-claim-report"), "Fix WY Claim Report");
+    }
+
+    #[test]
+    fn title_case_single_word() {
+        assert_eq!(to_title_case("refactor"), "Refactor");
+    }
+
+    // ── conflict_base_separator ───────────────────────────────────────────────
+
+    #[test]
+    fn cb_sep_dash_format() {
+        assert_eq!(conflict_base_separator(FMT), Some("-"));
+    }
+
+    #[test]
+    fn cb_sep_underscore_format() {
+        let fmt = "{branchPrefix}/{ticket.key}{conflictBase: '_$1'}-{slug}";
+        assert_eq!(conflict_base_separator(fmt), Some("_"));
+    }
+
+    #[test]
+    fn cb_sep_none_when_no_conflict_base() {
+        assert_eq!(conflict_base_separator(FMT_PLAIN), None);
+    }
+
+    // ── ticket_end_index ──────────────────────────────────────────────────────
+
+    #[test]
+    fn ticket_end_basic() {
+        assert_eq!(ticket_end_index("CAPY-1234-some-slug"), Some(9));
+    }
+
+    #[test]
+    fn ticket_end_short_number() {
+        assert_eq!(ticket_end_index("AB-1-slug"), Some(4));
+    }
+
+    #[test]
+    fn ticket_end_none_for_non_ticket() {
+        assert!(ticket_end_index("just-a-slug").is_none());
+        assert!(ticket_end_index("CAPY-XYZ-slug").is_none());
+    }
+
+    // ── is_all_caps_word ──────────────────────────────────────────────────────
+
+    #[test]
+    fn all_caps_word_valid() {
+        assert!(is_all_caps_word("DEVELOP"));
+        assert!(is_all_caps_word("STAGING"));
+        assert!(is_all_caps_word("MY_ENV"));
+    }
+
+    #[test]
+    fn all_caps_word_rejects_single_char() {
+        assert!(!is_all_caps_word("A"));
+    }
+
+    #[test]
+    fn all_caps_word_rejects_mixed_case() {
+        assert!(!is_all_caps_word("Develop"));
+        assert!(!is_all_caps_word("develop"));
+    }
+
+    // ── extract_json_str ──────────────────────────────────────────────────────
+
+    #[test]
+    fn json_str_extraction() {
+        let json = r#"[{"url":"https://github.com/foo/bar/pull/1","state":"OPEN"}]"#;
+        assert_eq!(
+            extract_json_str(json, "url"),
+            Some("https://github.com/foo/bar/pull/1".into())
+        );
+        assert_eq!(extract_json_str(json, "state"), Some("OPEN".into()));
+        assert_eq!(extract_json_str(json, "missing"), None);
     }
 }

@@ -38,12 +38,18 @@ fn validate(config_override: Option<&str>) -> Result<()> {
             }
             Err(e) => {
                 eprintln!("{}", format!("\u{2717}  Config error: {}", e).red().bold());
-                eprintln!("   Hint: run {} to create a starter config.", "'fi init'".cyan());
+                eprintln!(
+                    "   Hint: run {} to create a starter config.",
+                    "'fi init'".cyan()
+                );
             }
         },
         Err(e) => {
             eprintln!("{}", format!("\u{2717}  Config error: {}", e).red().bold());
-            eprintln!("   Hint: run {} to create a starter config.", "'fi init'".cyan());
+            eprintln!(
+                "   Hint: run {} to create a starter config.",
+                "'fi init'".cyan()
+            );
         }
     }
     Ok(())
@@ -97,8 +103,5 @@ fn resolve_config_path(override_path: Option<&str>) -> Result<PathBuf> {
             return Ok(path.clone());
         }
     }
-    anyhow::bail!(
-        "No config file found. Tried: {:?}",
-        paths
-    )
+    anyhow::bail!("No config file found. Tried: {:?}", paths)
 }

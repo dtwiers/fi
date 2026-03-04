@@ -55,14 +55,19 @@ impl CommonConfig {
         use crate::template::render_template;
         use std::collections::HashMap;
 
-        let fmt = self.branch_format.as_deref()
+        let fmt = self
+            .branch_format
+            .as_deref()
             .unwrap_or("{branchPrefix}/{ticket.key}-{slug}");
 
         let mut vars = HashMap::new();
         vars.insert("branchPrefix".into(), prefix.to_string());
         vars.insert("ticket.key".into(), ticket_key.to_string());
         vars.insert("slug".into(), slug.to_string());
-        vars.insert("conflictBase".into(), conflict_base.unwrap_or("").to_string());
+        vars.insert(
+            "conflictBase".into(),
+            conflict_base.unwrap_or("").to_string(),
+        );
 
         render_template(fmt, &vars)
     }
@@ -144,7 +149,13 @@ impl AskField {
     }
 
     pub fn is_optional(&self) -> bool {
-        matches!(self, Self::Complex { optional: Some(true), .. })
+        matches!(
+            self,
+            Self::Complex {
+                optional: Some(true),
+                ..
+            }
+        )
     }
 }
 
@@ -173,10 +184,9 @@ pub fn find_config(override_path: Option<&str>) -> Result<Config> {
 
     for path in &paths {
         if path.exists() {
-            let content = std::fs::read_to_string(path)
-                .with_context(|| format!("reading {:?}", path))?;
-            return serde_yaml::from_str(&content)
-                .with_context(|| format!("parsing {:?}", path));
+            let content =
+                std::fs::read_to_string(path).with_context(|| format!("reading {:?}", path))?;
+            return serde_yaml::from_str(&content).with_context(|| format!("parsing {:?}", path));
         }
     }
 
@@ -225,3 +235,122 @@ pub fn find_config_path(override_path: Option<&str>) -> Result<PathBuf> {
     )
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn common(branch_format: Option<&str>) -> CommonConfig {
+        CommonConfig {
+            branch_prefixes: vec!["fix".into(), "feat".into()],
+            default_branch_prefix: "feat".into(),
+            branch_format: branch_format.map(|s| s.to_string()),
+        }
+    }
+
+    // ── expand_tilde ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn expand_tilde_home_dir() {
+        let home = dirs::home_dir().unwrap_or_default();
+        assert_eq!(expand_tilde("~"), home);
+    }
+
+    #[test]
+    fn expand_tilde_with_path() {
+        let home = dirs::home_dir().unwrap_or_default();
+        assert_eq!(expand_tilde("~/foo/bar"), home.join("foo/bar"));
+    }
+
+    #[test]
+    fn expand_tilde_absolute_path_unchanged() {
+        assert_eq!(
+            expand_tilde("/absolute/path"),
+            PathBuf::from("/absolute/path")
+        );
+    }
+
+    #[test]
+    fn expand_tilde_relative_path_unchanged() {
+        assert_eq!(
+            expand_tilde("relative/path"),
+            PathBuf::from("relative/path")
+        );
+    }
+
+    // ── render_branch ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn render_branch_default_format() {
+        let c = common(None);
+        assert_eq!(
+            c.render_branch("fix", "CAPY-1234", "some-feature", None),
+            "fix/CAPY-1234-some-feature"
+        );
+    }
+
+    #[test]
+    fn render_branch_custom_format() {
+        let c = common(Some("{branchPrefix}/{ticket.key}-{slug}"));
+        assert_eq!(
+            c.render_branch("feat", "PROJ-99", "add-widget", None),
+            "feat/PROJ-99-add-widget"
+        );
+    }
+
+    #[test]
+    fn render_branch_with_conflict_base() {
+        let fmt = "{branchPrefix}/{ticket.key}{conflictBase: '-$1'}-{slug}";
+        let c = common(Some(fmt));
+        assert_eq!(
+            c.render_branch("fix", "CAPY-1234", "some-feature", Some("DEVELOP")),
+            "fix/CAPY-1234-DEVELOP-some-feature"
+        );
+    }
+
+    #[test]
+    fn render_branch_conflict_base_absent_suppresses_segment() {
+        let fmt = "{branchPrefix}/{ticket.key}{conflictBase: '-$1'}-{slug}";
+        let c = common(Some(fmt));
+        assert_eq!(
+            c.render_branch("fix", "CAPY-1234", "some-feature", None),
+            "fix/CAPY-1234-some-feature"
+        );
+    }
+
+    // ── AskField ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn ask_field_simple_type() {
+        let f = AskField::Simple("editor".into());
+        assert_eq!(f.field_type(), "editor");
+        assert!(!f.is_optional());
+    }
+
+    #[test]
+    fn ask_field_complex_type() {
+        let f = AskField::Complex {
+            field_type: "boolean".into(),
+            optional: None,
+        };
+        assert_eq!(f.field_type(), "boolean");
+        assert!(!f.is_optional());
+    }
+
+    #[test]
+    fn ask_field_complex_optional() {
+        let f = AskField::Complex {
+            field_type: "editor".into(),
+            optional: Some(true),
+        };
+        assert!(f.is_optional());
+    }
+
+    #[test]
+    fn ask_field_complex_optional_false() {
+        let f = AskField::Complex {
+            field_type: "editor".into(),
+            optional: Some(false),
+        };
+        assert!(!f.is_optional());
+    }
+}

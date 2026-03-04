@@ -4,9 +4,9 @@ use inquire::Select;
 use std::fmt;
 use tokio::task::JoinSet;
 
+use super::run_repo_cmd;
 use crate::config::{Config, RepoConfig, RepoType, expand_tilde};
 use crate::git::{WorktreeInfo, is_dirty, list_worktrees};
-use super::run_repo_cmd;
 
 struct WorktreeOption {
     info: WorktreeInfo,
@@ -116,7 +116,13 @@ pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
 
     // Sort: persistent first (blue), then dirty (yellow), then clean (green); alpha within groups
     options.sort_by_key(|o| {
-        let group = if o.is_persistent { 0 } else if o.is_dirty { 1 } else { 2 };
+        let group = if o.is_persistent {
+            0
+        } else if o.is_dirty {
+            1
+        } else {
+            2
+        };
         (group, o.info.branch.clone())
     });
 

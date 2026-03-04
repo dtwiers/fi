@@ -122,13 +122,13 @@ pub fn run(force: bool) -> Result<()> {
             "✗".red().bold(),
             config_path.display().to_string().yellow()
         );
-        println!(
-            "  Run {} to overwrite.",
-            "fi init --force".cyan()
-        );
+        println!("  Run {} to overwrite.", "fi init --force".cyan());
         // Still print the example so they can reference it
         println!();
-        println!("{}", "── Example config (not written) ─────────────────────────".dimmed());
+        println!(
+            "{}",
+            "── Example config (not written) ─────────────────────────".dimmed()
+        );
         print!("{}", EXAMPLE_CONFIG.dimmed());
         return Ok(());
     }
@@ -163,14 +163,15 @@ pub fn run(force: bool) -> Result<()> {
         "  1. Edit {} and fill in your Jira details and repos.",
         config_path.display().to_string().cyan()
     );
-    println!(
-        "  2. For editor autocomplete/validation, point your YAML language server at:"
-    );
+    println!("  2. For editor autocomplete/validation, point your YAML language server at:");
     println!("       {}", "fi.schema.json".cyan());
     println!(
         "     (the # yaml-language-server comment at the top of the file does this automatically)"
     );
-    println!("  3. Run {} to test your config.", "fi new --dry-run".cyan());
+    println!(
+        "  3. Run {} to test your config.",
+        "fi new --dry-run".cyan()
+    );
 
     Ok(())
 }

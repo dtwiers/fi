@@ -166,13 +166,19 @@ fn fix_fish_completions(raw: &str) -> String {
             "__fish_fi_using_subcommand config; and __fish_seen_subcommand_from {}",
             sub
         );
-        fixed = fixed.replace(&broken, &format!("__fish_fi_using_config_subcommand {}", sub));
+        fixed = fixed.replace(
+            &broken,
+            &format!("__fish_fi_using_config_subcommand {}", sub),
+        );
     }
 
     // Fix "help" subcommand guards (same semicolon problem).
     let all_subs = "init new cull pr open list config sync completions help";
     fixed = fixed.replace(
-        &format!("__fish_fi_using_subcommand help; and not __fish_seen_subcommand_from {}", all_subs),
+        &format!(
+            "__fish_fi_using_subcommand help; and not __fish_seen_subcommand_from {}",
+            all_subs
+        ),
         "__fish_fi_help_needs_subcommand",
     );
     fixed = fixed.replace(
@@ -192,7 +198,7 @@ async fn main() -> Result<()> {
         let name = cmd.get_name().to_string();
         match shell {
             CompletionShell::Bash => generate(Bash, &mut cmd, &name, &mut std::io::stdout()),
-            CompletionShell::Zsh  => generate(Zsh,  &mut cmd, &name, &mut std::io::stdout()),
+            CompletionShell::Zsh => generate(Zsh, &mut cmd, &name, &mut std::io::stdout()),
             CompletionShell::Fish => {
                 let mut buf = Vec::new();
                 generate(Fish, &mut cmd, &name, &mut buf);
@@ -225,9 +231,10 @@ async fn main() -> Result<()> {
             commands::new::run(&config, dry_run, ticket.as_deref()).await
         }
         Commands::Cull { dry_run } => commands::cull::run(&config, dry_run).await,
-        Commands::Pr { dry_run, continue_mode } => {
-            commands::pr::run(&config, dry_run, continue_mode).await
-        }
+        Commands::Pr {
+            dry_run,
+            continue_mode,
+        } => commands::pr::run(&config, dry_run, continue_mode).await,
         Commands::Open { dry_run } => commands::open::run(&config, dry_run).await,
         Commands::List => commands::list::run(&config).await,
         Commands::Sync { dry_run } => commands::sync::run(&config, dry_run).await,

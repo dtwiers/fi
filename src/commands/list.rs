@@ -21,10 +21,7 @@ pub async fn run(config: &Config) -> Result<()> {
                     println!("  {}", "(no worktrees)".dimmed());
                 } else {
                     let persistent = repo.persistent_branches.clone().unwrap_or_default();
-                    let default_branch = repo
-                        .default_branch
-                        .as_deref()
-                        .unwrap_or("master");
+                    let default_branch = repo.default_branch.as_deref().unwrap_or("master");
 
                     for wt in &worktrees {
                         let is_persistent = persistent.contains(&wt.branch);
@@ -85,9 +82,14 @@ pub async fn run(config: &Config) -> Result<()> {
     Ok(())
 }
 
-fn current_branch(repo_root: &std::path::PathBuf) -> Option<String> {
+fn current_branch(repo_root: &std::path::Path) -> Option<String> {
     let output = Command::new("git")
-        .args(["-C", repo_root.to_str().unwrap_or("."), "branch", "--show-current"])
+        .args([
+            "-C",
+            repo_root.to_str().unwrap_or("."),
+            "branch",
+            "--show-current",
+        ])
         .output()
         .ok()?;
     if output.status.success() {
@@ -95,10 +97,19 @@ fn current_branch(repo_root: &std::path::PathBuf) -> Option<String> {
         if branch.is_empty() {
             // Detached HEAD — show short SHA
             let sha = Command::new("git")
-                .args(["-C", repo_root.to_str().unwrap_or("."), "rev-parse", "--short", "HEAD"])
+                .args([
+                    "-C",
+                    repo_root.to_str().unwrap_or("."),
+                    "rev-parse",
+                    "--short",
+                    "HEAD",
+                ])
                 .output()
                 .ok()?;
-            Some(format!("(detached) {}", String::from_utf8_lossy(&sha.stdout).trim()))
+            Some(format!(
+                "(detached) {}",
+                String::from_utf8_lossy(&sha.stdout).trim()
+            ))
         } else {
             Some(branch)
         }
@@ -115,7 +126,7 @@ fn is_worktree_dirty(path: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn is_standard_dirty(root: &std::path::PathBuf) -> bool {
+fn is_standard_dirty(root: &std::path::Path) -> bool {
     Command::new("git")
         .args(["-C", root.to_str().unwrap_or("."), "status", "--porcelain"])
         .output()

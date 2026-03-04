@@ -2,9 +2,9 @@ use anyhow::Result;
 use colored::Colorize;
 use inquire::Confirm;
 
+use super::pr::{PrStatus, assess_all_targets, detect_context, parse_branch};
 use crate::config::{Config, RepoType, expand_tilde};
 use crate::git;
-use super::pr::{detect_context, parse_branch, PrStatus, assess_all_targets};
 
 /// `fi sync` — keep conflict branches up to date with the feature branch.
 ///
@@ -16,7 +16,11 @@ use super::pr::{detect_context, parse_branch, PrStatus, assess_all_targets};
 pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
     let (repo, current_branch) = match detect_context(config)? {
         Some(ctx) => {
-            println!("Detected: {} on {}", ctx.0.name.cyan(), ctx.1.green().bold());
+            println!(
+                "Detected: {} on {}",
+                ctx.0.name.cyan(),
+                ctx.1.green().bold()
+            );
             ctx
         }
         None => {
@@ -24,7 +28,10 @@ pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
         }
     };
 
-    let branch_fmt = config.common.branch_format.as_deref()
+    let branch_fmt = config
+        .common
+        .branch_format
+        .as_deref()
         .unwrap_or("{branchPrefix}/{ticket.key}-{slug}");
 
     let parsed = parse_branch(&current_branch, branch_fmt)
@@ -32,7 +39,9 @@ pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
 
     // Determine feature branch (may be on a conflict branch).
     let feature_branch = if parsed.conflict_base.is_some() {
-        config.common.render_branch(&parsed.prefix, &parsed.ticket, &parsed.slug, None)
+        config
+            .common
+            .render_branch(&parsed.prefix, &parsed.ticket, &parsed.slug, None)
     } else {
         current_branch.clone()
     };
@@ -45,12 +54,14 @@ pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
     };
 
     // Assess all targets (includes fetch).
-    let assessments = assess_all_targets(&repo, &feature_branch, &feature_info, config, dry_run).await?;
+    let assessments =
+        assess_all_targets(&repo, &feature_branch, &feature_info, config, dry_run).await?;
 
     let root = expand_tilde(&repo.root);
 
     // Find all conflict branches that exist.
-    let conflict_targets: Vec<_> = assessments.iter()
+    let conflict_targets: Vec<_> = assessments
+        .iter()
         .filter(|a| a.has_conflict && a.conflict_branch_exists)
         .collect();
 
@@ -88,7 +99,9 @@ pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
         if dry_run {
             println!(
                 "{} git merge {} --no-edit  (in {})",
-                "[dry-run]".yellow(), feature_branch, wt_path
+                "[dry-run]".yellow(),
+                feature_branch,
+                wt_path
             );
         } else {
             print!("  Merging {}… ", feature_branch.cyan());
@@ -97,7 +110,10 @@ pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
             if clean {
                 println!("{}", "clean".green());
             } else {
-                println!("{}", "conflicts! Resolve and run `fi pr --continue`".yellow());
+                println!(
+                    "{}",
+                    "conflicts! Resolve and run `fi pr --continue`".yellow()
+                );
                 if repo.repo_type == RepoType::Standard {
                     // Switch back so the user isn't stranded.
                     let _ = std::process::Command::new("git")
@@ -111,13 +127,20 @@ pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
 
         // Push.
         if dry_run {
-            println!("{} git push --set-upstream origin {}", "[dry-run]".yellow(), a.conflict_branch);
+            println!(
+                "{} git push --set-upstream origin {}",
+                "[dry-run]".yellow(),
+                a.conflict_branch
+            );
         } else {
             print!("  Pushing… ");
             std::io::Write::flush(&mut std::io::stdout()).ok();
             match git::push_branch(&root, &a.conflict_branch) {
                 Ok(_) => println!("{}", "done".green()),
-                Err(e) => { eprintln!("{}", e); continue; }
+                Err(e) => {
+                    eprintln!("{}", e);
+                    continue;
+                }
             }
         }
 
@@ -135,11 +158,15 @@ pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
                 println!(
                     "  {} Conflict PR was {} ({}). Recreate it?",
                     "⚡".yellow(),
-                    if matches!(a.conflict_pr, PrStatus::Merged(_)) { "merged" } else { "closed" },
+                    if matches!(a.conflict_pr, PrStatus::Merged(_)) {
+                        "merged"
+                    } else {
+                        "closed"
+                    },
                     url
                 );
-                let should_recreate = dry_run
-                    || Confirm::new("Recreate PR?").with_default(true).prompt()?;
+                let should_recreate =
+                    dry_run || Confirm::new("Recreate PR?").with_default(true).prompt()?;
                 if should_recreate {
                     let msg = format!("fi pr --continue while on {}", a.conflict_branch.cyan());
                     println!("  Run: {}", msg.bold());
@@ -151,7 +178,8 @@ pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
             PrStatus::None => {
                 println!(
                     "  {} No PR found. Run `fi pr --continue` from {} to create one.",
-                    "⚡".yellow(), a.conflict_branch.cyan()
+                    "⚡".yellow(),
+                    a.conflict_branch.cyan()
                 );
             }
         }

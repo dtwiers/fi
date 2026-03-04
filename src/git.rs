@@ -21,7 +21,9 @@ pub fn list_worktrees(repo_root: &Path) -> Result<Vec<WorktreeInfo>> {
         );
     }
 
-    Ok(parse_worktree_list(&String::from_utf8_lossy(&output.stdout)))
+    Ok(parse_worktree_list(&String::from_utf8_lossy(
+        &output.stdout,
+    )))
 }
 
 fn parse_worktree_list(output: &str) -> Vec<WorktreeInfo> {
@@ -222,4 +224,68 @@ pub fn create_branch(repo_root: &Path, branch: &str, base: &str) -> Result<()> {
         anyhow::bail!("git checkout -b failed for branch {}", branch);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── parse_worktree_list ───────────────────────────────────────────────────
+
+    #[test]
+    fn parse_two_worktrees() {
+        let input = "\
+worktree /home/user/proj.git
+HEAD abc123
+branch refs/heads/master
+
+worktree /home/user/proj.git/feature/CAPY-1234-some-feature
+HEAD def456
+branch refs/heads/feature/CAPY-1234-some-feature
+
+";
+        let wts = parse_worktree_list(input);
+        assert_eq!(wts.len(), 2);
+        assert_eq!(wts[0].branch, "master");
+        assert_eq!(wts[0].path, "/home/user/proj.git");
+        assert_eq!(wts[1].branch, "feature/CAPY-1234-some-feature");
+    }
+
+    #[test]
+    fn parse_detached_head_skipped() {
+        // Detached HEADs have no `branch` line — they should be excluded.
+        let input = "\
+worktree /some/path
+HEAD abc123
+
+";
+        let wts = parse_worktree_list(input);
+        assert!(wts.is_empty());
+    }
+
+    #[test]
+    fn parse_empty_output() {
+        assert!(parse_worktree_list("").is_empty());
+    }
+
+    #[test]
+    fn parse_mixed_detached_and_normal() {
+        let input = "\
+worktree /root
+HEAD 111
+branch refs/heads/main
+
+worktree /root/detached
+HEAD 222
+
+worktree /root/feature
+HEAD 333
+branch refs/heads/feature/PROJ-1-thing
+
+";
+        let wts = parse_worktree_list(input);
+        assert_eq!(wts.len(), 2);
+        assert_eq!(wts[0].branch, "main");
+        assert_eq!(wts[1].branch, "feature/PROJ-1-thing");
+    }
 }

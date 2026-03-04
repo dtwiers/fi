@@ -47,10 +47,22 @@ pub(crate) fn unescape(s: &str) -> String {
     while let Some(c) = chars.next() {
         if c == '\\' {
             match chars.peek() {
-                Some('n')  => { chars.next(); out.push('\n'); }
-                Some('t')  => { chars.next(); out.push('\t'); }
-                Some('r')  => { chars.next(); out.push('\r'); }
-                Some('\\') => { chars.next(); out.push('\\'); }
+                Some('n') => {
+                    chars.next();
+                    out.push('\n');
+                }
+                Some('t') => {
+                    chars.next();
+                    out.push('\t');
+                }
+                Some('r') => {
+                    chars.next();
+                    out.push('\r');
+                }
+                Some('\\') => {
+                    chars.next();
+                    out.push('\\');
+                }
                 _ => out.push(c),
             }
         } else {
@@ -58,4 +70,150 @@ pub(crate) fn unescape(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vars(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    // ── render_template ───────────────────────────────────────────────────────
+
+    #[test]
+    fn simple_substitution() {
+        let v = vars(&[("name", "world")]);
+        assert_eq!(render_template("Hello {name}!", &v), "Hello world!");
+    }
+
+    #[test]
+    fn multiple_variables() {
+        let v = vars(&[("a", "foo"), ("b", "bar")]);
+        assert_eq!(render_template("{a}-{b}", &v), "foo-bar");
+    }
+
+    #[test]
+    fn missing_variable_renders_empty() {
+        let v = vars(&[]);
+        assert_eq!(
+            render_template("before {missing} after", &v),
+            "before  after"
+        );
+    }
+
+    #[test]
+    fn conditional_set() {
+        let v = vars(&[("x", "DEVELOP")]);
+        assert_eq!(
+            render_template("prefix{x: '-$1'}suffix", &v),
+            "prefix-DEVELOPsuffix"
+        );
+    }
+
+    #[test]
+    fn conditional_empty_omits_block() {
+        let v = vars(&[("x", "")]);
+        assert_eq!(
+            render_template("prefix{x: '-$1'}suffix", &v),
+            "prefixsuffix"
+        );
+    }
+
+    #[test]
+    fn conditional_missing_omits_block() {
+        let v = vars(&[]);
+        assert_eq!(
+            render_template("prefix{x: '-$1'}suffix", &v),
+            "prefixsuffix"
+        );
+    }
+
+    #[test]
+    fn conditional_double_quoted_format() {
+        let v = vars(&[("x", "val")]);
+        assert_eq!(render_template(r#"a{x: "-$1"}b"#, &v), "a-valb");
+    }
+
+    #[test]
+    fn no_vars_passthrough() {
+        let v = vars(&[]);
+        assert_eq!(render_template("plain text", &v), "plain text");
+    }
+
+    #[test]
+    fn unclosed_brace_emitted_literally() {
+        let v = vars(&[]);
+        // A lone '{' with no closing '}' should be emitted as-is.
+        assert!(render_template("open { brace", &v).contains('{'));
+    }
+
+    #[test]
+    fn branch_format_no_conflict_base() {
+        let v = vars(&[
+            ("branchPrefix", "fix"),
+            ("ticket.key", "CAPY-1234"),
+            ("slug", "some-feature"),
+            ("conflictBase", ""),
+        ]);
+        let fmt = "{branchPrefix}/{ticket.key}{conflictBase: '-$1'}-{slug}";
+        assert_eq!(render_template(fmt, &v), "fix/CAPY-1234-some-feature");
+    }
+
+    #[test]
+    fn branch_format_with_conflict_base() {
+        let v = vars(&[
+            ("branchPrefix", "fix"),
+            ("ticket.key", "CAPY-1234"),
+            ("slug", "some-feature"),
+            ("conflictBase", "DEVELOP"),
+        ]);
+        let fmt = "{branchPrefix}/{ticket.key}{conflictBase: '-$1'}-{slug}";
+        assert_eq!(
+            render_template(fmt, &v),
+            "fix/CAPY-1234-DEVELOP-some-feature"
+        );
+    }
+
+    // ── unescape ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn unescape_newline() {
+        assert_eq!(unescape(r"\n"), "\n");
+    }
+
+    #[test]
+    fn unescape_tab() {
+        assert_eq!(unescape(r"\t"), "\t");
+    }
+
+    #[test]
+    fn unescape_cr() {
+        assert_eq!(unescape(r"\r"), "\r");
+    }
+
+    #[test]
+    fn unescape_backslash() {
+        assert_eq!(unescape(r"\\"), "\\");
+    }
+
+    #[test]
+    fn unescape_unknown_sequence_kept() {
+        // Unknown escape sequences are kept as-is.
+        assert_eq!(unescape(r"\q"), r"\q");
+    }
+
+    #[test]
+    fn unescape_no_escapes() {
+        assert_eq!(unescape("hello world"), "hello world");
+    }
+
+    #[test]
+    fn unescape_mixed() {
+        assert_eq!(unescape(r"line1\nline2\ttabbed"), "line1\nline2\ttabbed");
+    }
 }

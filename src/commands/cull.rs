@@ -3,7 +3,7 @@ use colored::Colorize;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use inquire::{Confirm, MultiSelect};
 use std::fmt;
-use std::path::PathBuf;
+use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 use tokio::task::JoinSet;
@@ -28,10 +28,10 @@ enum WtStatus {
 impl fmt::Display for WtStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            WtStatus::Dirty    => write!(f, "{}", "dirty".red().bold()),
+            WtStatus::Dirty => write!(f, "{}", "dirty".red().bold()),
             WtStatus::Unpushed => write!(f, "{}", "unpushed".yellow().bold()),
-            WtStatus::Clean    => write!(f, "{}", "clean".green()),
-            WtStatus::Merged   => write!(f, "{}", "merged".cyan()),
+            WtStatus::Clean => write!(f, "{}", "clean".green()),
+            WtStatus::Merged => write!(f, "{}", "merged".cyan()),
         }
     }
 }
@@ -55,7 +55,12 @@ impl fmt::Display for CullTarget {
 }
 
 /// Compute the status of a single worktree.
-fn worktree_status(wt_path: &str, repo_root: &PathBuf, branch: &str, default_branch: &str) -> WtStatus {
+fn worktree_status(
+    wt_path: &str,
+    repo_root: &Path,
+    branch: &str,
+    default_branch: &str,
+) -> WtStatus {
     // 1. dirty?
     let dirty = Command::new("git")
         .args(["-C", wt_path, "status", "--porcelain"])
@@ -79,9 +84,21 @@ fn worktree_status(wt_path: &str, repo_root: &PathBuf, branch: &str, default_bra
             }
             // Remote exists — check if HEAD has commits not on it
             Command::new("git")
-                .args(["-C", wt_path, "rev-list", "--count", &format!("{remote_ref}..HEAD")])
+                .args([
+                    "-C",
+                    wt_path,
+                    "rev-list",
+                    "--count",
+                    &format!("{remote_ref}..HEAD"),
+                ])
                 .output()
-                .map(|o| String::from_utf8_lossy(&o.stdout).trim().parse::<u32>().unwrap_or(0) > 0)
+                .map(|o| {
+                    String::from_utf8_lossy(&o.stdout)
+                        .trim()
+                        .parse::<u32>()
+                        .unwrap_or(0)
+                        > 0
+                })
                 .unwrap_or(false)
         })
         .unwrap_or(true);
@@ -146,7 +163,10 @@ pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
     println!("{}", "Checking worktree statuses…".dimmed());
     let mut status_set: JoinSet<(RepoConfig, WorktreeInfo, WtStatus)> = JoinSet::new();
     for (repo, wt) in raw {
-        let default_branch = repo.default_branch.clone().unwrap_or_else(|| "master".to_string());
+        let default_branch = repo
+            .default_branch
+            .clone()
+            .unwrap_or_else(|| "master".to_string());
         let root = expand_tilde(&repo.root);
         status_set.spawn_blocking(move || {
             let st = worktree_status(&wt.path, &root, &wt.branch, &default_branch);
@@ -157,16 +177,20 @@ pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
     let mut targets: Vec<CullTarget> = Vec::new();
     while let Some(res) = status_set.join_next().await {
         if let Ok((repo, worktree, status)) = res {
-            targets.push(CullTarget { repo, worktree, status });
+            targets.push(CullTarget {
+                repo,
+                worktree,
+                status,
+            });
         }
     }
 
     // Sort: dirty first, then unpushed, then clean, then merged
     targets.sort_by_key(|t| match t.status {
-        WtStatus::Dirty    => 0,
+        WtStatus::Dirty => 0,
         WtStatus::Unpushed => 1,
-        WtStatus::Clean    => 2,
-        WtStatus::Merged   => 3,
+        WtStatus::Clean => 2,
+        WtStatus::Merged => 3,
     });
 
     let selected = MultiSelect::new("Select worktrees to cull:", targets).prompt()?;
@@ -238,7 +262,7 @@ pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
             match res {
                 Ok(Ok(_)) => {}
                 Ok(Err(e)) => eprintln!("{} {}", "✗ error:".red(), e),
-                Err(e)    => eprintln!("{} {}", "✗ task panic:".red(), e),
+                Err(e) => eprintln!("{} {}", "✗ task panic:".red(), e),
             }
         }
     }
@@ -249,7 +273,7 @@ pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
 }
 
 async fn cull_worktree(
-    repo_root: &PathBuf,
+    repo_root: &Path,
     wt_path: &str,
     branch: &str,
     _pb: &ProgressBar,
@@ -272,16 +296,19 @@ async fn cull_worktree(
     }
 
     if std::path::Path::new(wt_path).exists() {
-        std::fs::remove_dir_all(wt_path)
-            .with_context(|| format!("rm -rf {wt_path}"))?;
+        std::fs::remove_dir_all(wt_path).with_context(|| format!("rm -rf {wt_path}"))?;
     }
 
     // Non-fatal: branch may already be gone after worktree remove
     let _ = Command::new("git")
-        .args(["-C", repo_root.to_str().unwrap_or("."), "branch", "-D", branch])
+        .args([
+            "-C",
+            repo_root.to_str().unwrap_or("."),
+            "branch",
+            "-D",
+            branch,
+        ])
         .output();
 
     Ok(())
 }
-
-

@@ -124,13 +124,24 @@ pub(crate) fn unescape(s: &str) -> String {
             continue;
         }
         match chars.peek() {
-            Some(&'n') => { chars.next(); result.push('\n'); }
-            Some(&'r') => { chars.next(); result.push('\r'); }
-            Some(&'t') => { chars.next(); result.push('\t'); }
-            Some(&'\\') => { chars.next(); result.push('\\'); }
+            Some(&'n') => {
+                chars.next();
+                result.push('\n');
+            }
+            Some(&'r') => {
+                chars.next();
+                result.push('\r');
+            }
+            Some(&'t') => {
+                chars.next();
+                result.push('\t');
+            }
+            Some(&'\\') => {
+                chars.next();
+                result.push('\\');
+            }
             _ => result.push('\\'),
         }
     }
     result
 }
-

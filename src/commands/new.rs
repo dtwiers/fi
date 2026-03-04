@@ -2,10 +2,10 @@ use anyhow::Result;
 use colored::Colorize;
 use inquire::{MultiSelect, Select, Text};
 
+use super::run_repo_cmd;
 use crate::config::{Config, RepoConfig, RepoType, expand_tilde};
 use crate::git;
 use crate::jira;
-use super::run_repo_cmd;
 
 fn to_kebab_case(s: &str) -> String {
     let mut result = String::new();
@@ -51,14 +51,17 @@ pub async fn run(config: &Config, dry_run: bool, ticket: Option<&str>) -> Result
         .prompt()?;
 
     // 5. Branch type
-    let branch_type = Select::new("Branch type:", config.common.branch_prefixes.clone())
-        .prompt()?;
+    let branch_type =
+        Select::new("Branch type:", config.common.branch_prefixes.clone()).prompt()?;
 
     // 6. Per-repo base branch
     let repos_with_base: Vec<(RepoConfig, String)> = repos
         .into_iter()
         .map(|repo| {
-            let default = repo.default_branch.clone().unwrap_or_else(|| "master".to_string());
+            let default = repo
+                .default_branch
+                .clone()
+                .unwrap_or_else(|| "master".to_string());
             let base = Text::new(&format!("Base branch for {}:", repo.name))
                 .with_default(&default)
                 .prompt()?;
@@ -67,7 +70,9 @@ pub async fn run(config: &Config, dry_run: bool, ticket: Option<&str>) -> Result
         .collect::<Result<_>>()?;
 
     // 7. Preview
-    let branch_name = config.common.render_branch(&branch_type, &issue.key, &description, None);
+    let branch_name = config
+        .common
+        .render_branch(&branch_type, &issue.key, &description, None);
     println!();
     for (repo, base) in &repos_with_base {
         println!(
@@ -136,11 +141,9 @@ pub async fn run(config: &Config, dry_run: bool, ticket: Option<&str>) -> Result
         let cmds = repo.commands.as_deref().unwrap_or(&[]);
         if !cmds.is_empty() {
             let branch_path_str = branch_path.to_string_lossy().to_string();
-            let selected = MultiSelect::new(
-                &format!("Run commands for {}?", repo.name),
-                cmds.to_vec(),
-            )
-            .prompt()?;
+            let selected =
+                MultiSelect::new(&format!("Run commands for {}?", repo.name), cmds.to_vec())
+                    .prompt()?;
 
             for cmd in selected {
                 run_repo_cmd(&cmd, &branch_path_str, dry_run)?;
