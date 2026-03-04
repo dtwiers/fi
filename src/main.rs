@@ -74,6 +74,106 @@ enum Commands {
     },
 }
 
+// clap_complete Fish backend emits nested-subcommand conditions like:
+//   -n "__fish_fi_using_subcommand config; and __fish_seen_subcommand_from validate"
+// The semicolon inside the -n string is NOT treated as a statement separator
+// in fish eval context, causing "Unknown command" errors on tab-completion.
+// fix_fish_completions() post-processes the output to inject two correct helper
+// functions and replace the broken conditions with calls to those helpers.
+fn fix_fish_completions(raw: &str) -> String {
+    let helpers = concat!(
+        "\nfunction __fish_fi_config_needs_subcommand\n",
+        "\tset -l cmd (commandline -opc)\n",
+        "\tset -e cmd[1]\n",
+        "\tset -l found 0\n",
+        "\tfor tok in $cmd\n",
+        "\t\tif test $found -eq 1\n",
+        "\t\t\tcontains -- $tok validate show path edit help; and return 1\n",
+        "\t\tend\n",
+        "\t\tif test $tok = config\n",
+        "\t\t\tset found 1\n",
+        "\t\tend\n",
+        "\tend\n",
+        "\ttest $found -eq 1\n",
+        "end\n",
+        "\nfunction __fish_fi_using_config_subcommand\n",
+        "\tset -l cmd (commandline -opc)\n",
+        "\tset -e cmd[1]\n",
+        "\tset -l after_config 0\n",
+        "\tfor tok in $cmd\n",
+        "\t\tif test $after_config -eq 1\n",
+        "\t\t\tcontains -- $tok $argv; and return 0\n",
+        "\t\t\treturn 1\n",
+        "\t\tend\n",
+        "\t\tif test $tok = config\n",
+        "\t\t\tset after_config 1\n",
+        "\t\tend\n",
+        "\tend\n",
+        "\treturn 1\n",
+        "end\n",
+        "\nfunction __fish_fi_help_needs_subcommand\n",
+        "\tset -l cmd (commandline -opc)\n",
+        "\tset -e cmd[1]\n",
+        "\tset -l found 0\n",
+        "\tfor tok in $cmd\n",
+        "\t\tif test $found -eq 1\n",
+        "\t\t\tcontains -- $tok init new cull pr open list config completions help; and return 1\n",
+        "\t\tend\n",
+        "\t\tif test $tok = help\n",
+        "\t\t\tset found 1\n",
+        "\t\tend\n",
+        "\tend\n",
+        "\ttest $found -eq 1\n",
+        "end\n",
+        "\nfunction __fish_fi_using_help_subcommand\n",
+        "\tset -l cmd (commandline -opc)\n",
+        "\tset -e cmd[1]\n",
+        "\tset -l after_help 0\n",
+        "\tfor tok in $cmd\n",
+        "\t\tif test $after_help -eq 1\n",
+        "\t\t\tcontains -- $tok $argv; and return 0\n",
+        "\t\t\treturn 1\n",
+        "\t\tend\n",
+        "\t\tif test $tok = help\n",
+        "\t\t\tset after_help 1\n",
+        "\t\tend\n",
+        "\tend\n",
+        "\treturn 1\n",
+        "end\n",
+    );
+
+    let injection = raw.find("\ncomplete -c fi").unwrap_or(raw.len());
+    let (before, after) = raw.split_at(injection);
+    let with_helpers = format!("{}{}{}", before, helpers, after);
+
+    // Fix "config" nested-subcommand guards.
+    let fixed = with_helpers.replace(
+        "__fish_fi_using_subcommand config; and not __fish_seen_subcommand_from validate show path edit help",
+        "__fish_fi_config_needs_subcommand",
+    );
+    let mut fixed = fixed;
+    for sub in ["validate", "show", "path", "edit", "help"] {
+        let broken = format!(
+            "__fish_fi_using_subcommand config; and __fish_seen_subcommand_from {}",
+            sub
+        );
+        fixed = fixed.replace(&broken, &format!("__fish_fi_using_config_subcommand {}", sub));
+    }
+
+    // Fix "help" subcommand guards (same semicolon problem).
+    let all_subs = "init new cull pr open list config completions help";
+    fixed = fixed.replace(
+        &format!("__fish_fi_using_subcommand help; and not __fish_seen_subcommand_from {}", all_subs),
+        "__fish_fi_help_needs_subcommand",
+    );
+    fixed = fixed.replace(
+        "__fish_fi_using_subcommand help; and __fish_seen_subcommand_from config",
+        "__fish_fi_using_help_subcommand config",
+    );
+
+    fixed
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -83,8 +183,13 @@ async fn main() -> Result<()> {
         let name = cmd.get_name().to_string();
         match shell {
             CompletionShell::Bash => generate(Bash, &mut cmd, &name, &mut std::io::stdout()),
-            CompletionShell::Zsh => generate(Zsh, &mut cmd, &name, &mut std::io::stdout()),
-            CompletionShell::Fish => generate(Fish, &mut cmd, &name, &mut std::io::stdout()),
+            CompletionShell::Zsh  => generate(Zsh,  &mut cmd, &name, &mut std::io::stdout()),
+            CompletionShell::Fish => {
+                let mut buf = Vec::new();
+                generate(Fish, &mut cmd, &name, &mut buf);
+                let raw = String::from_utf8_lossy(&buf);
+                print!("{}", fix_fish_completions(&raw));
+            }
             CompletionShell::Nushell => generate(Nushell, &mut cmd, &name, &mut std::io::stdout()),
         }
         return Ok(());
@@ -94,8 +199,8 @@ async fn main() -> Result<()> {
         return commands::init::run(force);
     }
 
-    // fi config subcommands don't need a loaded config (validate/path/show/edit
-    // all handle the "no config yet" case themselves)
+    // fi config subcommands do not need a loaded config -- validate/path/show/edit
+    // all handle the "no config yet" case themselves.
     if let Commands::Config { ref sub } = cli.command {
         return commands::config::run(sub, cli.config.as_deref()).await;
     }
@@ -111,7 +216,7 @@ async fn main() -> Result<()> {
             commands::new::run(&config, dry_run, ticket.as_deref()).await
         }
         Commands::Cull { dry_run } => commands::cull::run(&config, dry_run).await,
-        Commands::Pr { dry_run } => commands::pr::run(&config, dry_run).await,
+        Commands::Pr   { dry_run } => commands::pr::run(&config, dry_run).await,
         Commands::Open { dry_run } => commands::open::run(&config, dry_run).await,
         Commands::List => commands::list::run(&config).await,
         Commands::Completions { .. } | Commands::Init { .. } | Commands::Config { .. } => {
