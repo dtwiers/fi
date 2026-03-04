@@ -45,6 +45,8 @@ repos:
     type: worktree
     # The main integration branch
     defaultBranch: master
+    # Git remote name (defaults to "origin" when omitted)
+    # remote: upstream
     # New worktrees are created under root/featurePath/
     featurePath: work
     # Worktrees under root/persistentPath/ are never shown in `fi cull`
@@ -94,6 +96,8 @@ repos:
     root: ~/proj/my-config
     type: standard
     defaultBranch: main
+    # Git remote name (defaults to "origin" when omitted)
+    # remote: upstream
     prToBranches:
       - main
       - staging

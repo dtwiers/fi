@@ -81,6 +81,8 @@ pub struct RepoConfig {
     pub repo_type: RepoType,
     #[serde(rename = "defaultBranch")]
     pub default_branch: Option<String>,
+    /// Git remote name. Defaults to `"origin"` when not set.
+    pub remote: Option<String>,
     pub commands: Option<Vec<RepoCommand>>,
     #[serde(rename = "persistentBranches")]
     pub persistent_branches: Option<Vec<String>>,
@@ -92,6 +94,13 @@ pub struct RepoConfig {
     pub pr_to_branches: Option<Vec<String>>,
     #[serde(rename = "prTemplate")]
     pub pr_template: Option<PrTemplate>,
+}
+
+impl RepoConfig {
+    /// Returns the configured remote name, falling back to `"origin"`.
+    pub fn remote(&self) -> &str {
+        self.remote.as_deref().unwrap_or("origin")
+    }
 }
 
 impl fmt::Display for RepoConfig {

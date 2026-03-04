@@ -103,6 +103,67 @@ pub async fn run(config: &Config, dry_run: bool, ticket: Option<&str>) -> Result
             RepoType::Standard => repo_root.clone(),
         };
 
+        // Update the base branch before branching off it.
+        let remote = repo.remote();
+        match repo.repo_type {
+            RepoType::Worktree => {
+                // The base branch lives as a checked-out worktree — pull there.
+                let base_wt = git::find_worktree_for_branch(&repo_root, base);
+                if dry_run {
+                    let path_hint = base_wt.as_deref().unwrap_or("<worktree not found>");
+                    println!("{} git -C {} pull", "[dry-run]".yellow(), path_hint);
+                } else if let Some(ref wt_path) = base_wt {
+                    print!("Pulling {} in {}… ", base.magenta(), wt_path.dimmed());
+                    std::io::Write::flush(&mut std::io::stdout()).ok();
+                    let s = std::process::Command::new("git")
+                        .current_dir(wt_path)
+                        .arg("pull")
+                        .status();
+                    match s {
+                        Ok(s) if s.success() => println!("{}", "done".green()),
+                        Ok(_) => {
+                            println!("{} (pull failed, proceeding with local ref)", "⚠".yellow())
+                        }
+                        Err(e) => println!("{} ({})", "⚠".yellow(), e),
+                    }
+                } else {
+                    println!(
+                        "{} Base branch '{}' has no worktree — cannot pull. Proceeding with local ref.",
+                        "⚠".yellow(),
+                        base
+                    );
+                }
+            }
+            RepoType::Standard => {
+                // Fast-forward the local base ref without needing a checkout.
+                // `git fetch <remote> <base>:<base>` updates the local ref directly.
+                if dry_run {
+                    println!(
+                        "{} git -C {} fetch {} {}:{}",
+                        "[dry-run]".yellow(),
+                        repo_root.display(),
+                        remote,
+                        base,
+                        base
+                    );
+                } else {
+                    print!("Updating {} from {}… ", base.magenta(), remote);
+                    std::io::Write::flush(&mut std::io::stdout()).ok();
+                    let ff = std::process::Command::new("git")
+                        .current_dir(&repo_root)
+                        .args(["fetch", remote, &format!("{}:{}", base, base)])
+                        .status();
+                    match ff {
+                        Ok(s) if s.success() => println!("{}", "done".green()),
+                        Ok(_) => {
+                            println!("{} (fetch failed, proceeding with local ref)", "⚠".yellow())
+                        }
+                        Err(e) => println!("{} ({})", "⚠".yellow(), e),
+                    }
+                }
+            }
+        }
+
         match repo.repo_type {
             RepoType::Worktree => {
                 if dry_run {

@@ -135,7 +135,7 @@ pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
         } else {
             print!("  Pushing… ");
             std::io::Write::flush(&mut std::io::stdout()).ok();
-            match git::push_branch(&root, &a.conflict_branch) {
+            match git::push_branch(&root, &a.conflict_branch, repo.remote()) {
                 Ok(_) => println!("{}", "done".green()),
                 Err(e) => {
                     eprintln!("{}", e);

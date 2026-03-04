@@ -101,6 +101,10 @@
           "type": "string",
           "description": "Name of the main integration branch (e.g. \"master\", \"main\"). Used as the default base when creating branches and for merged-detection in `fi cull`."
         },
+        "remote": {
+          "type": "string",
+          "description": "Git remote name to use for fetch/push operations. Defaults to \"origin\" when omitted."
+        },
         "featurePath": {
           "type": "string",
           "description": "Subdirectory (relative to root) where new worktrees are created. Only used for worktree repos. E.g. \"work\"."

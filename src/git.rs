@@ -61,22 +61,27 @@ pub fn is_dirty(path: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Fetch all remotes, pruning deleted remote branches.
-pub fn fetch(repo_root: &Path) -> Result<()> {
+/// Fetch from a specific remote, pruning deleted remote branches.
+pub fn fetch(repo_root: &Path, remote: &str) -> Result<()> {
     let status = Command::new("git")
         .current_dir(repo_root)
-        .args(["fetch", "--all", "--prune"])
+        .args(["fetch", remote, "--prune"])
         .status()?;
     if !status.success() {
-        anyhow::bail!("git fetch failed");
+        anyhow::bail!("git fetch {} failed", remote);
     }
     Ok(())
 }
 
-/// Check whether merging `feature_branch` into `origin/<target>` would produce
+/// Check whether merging `feature_branch` into `<remote>/<target>` would produce
 /// conflicts. Always uses the remote tracking ref so results reflect reality.
-pub fn check_merge_conflicts(repo_root: &Path, feature_branch: &str, target: &str) -> bool {
-    let remote_target = format!("origin/{target}");
+pub fn check_merge_conflicts(
+    repo_root: &Path,
+    feature_branch: &str,
+    target: &str,
+    remote: &str,
+) -> bool {
+    let remote_target = format!("{remote}/{target}");
 
     // Prefer git merge-tree --write-tree (git ≥ 2.38): exit 1 means conflicts.
     let out = Command::new("git")
@@ -175,11 +180,11 @@ pub fn merge_into(path: &str, branch: &str) -> Result<bool> {
     Ok(status.success())
 }
 
-/// Push `branch` to origin, setting upstream tracking if not already set.
-pub fn push_branch(repo_root: &Path, branch: &str) -> Result<()> {
+/// Push `branch` to the given remote, setting upstream tracking if not already set.
+pub fn push_branch(repo_root: &Path, branch: &str, remote: &str) -> Result<()> {
     let status = Command::new("git")
         .current_dir(repo_root)
-        .args(["push", "--set-upstream", "origin", branch])
+        .args(["push", "--set-upstream", remote, branch])
         .status()?;
     if !status.success() {
         anyhow::bail!("git push failed for {branch}");

@@ -311,14 +311,16 @@ pub async fn assess_all_targets(
     let root = expand_tilde(&repo.root);
     let default_branch = repo.default_branch.as_deref().unwrap_or("master");
     let pr_to = repo.pr_to_branches.as_deref().unwrap_or(&[]);
+    let remote = repo.remote().to_string();
 
-    // Always fetch first so origin/* refs are current.
+    // Always fetch first so <remote>/* refs are current.
     if dry_run {
-        println!("{} git fetch --all --prune", "[dry-run]".yellow());
+        println!("{} git fetch {} --prune", "[dry-run]".yellow(), remote);
     } else {
         print!("Fetching remote refs… ");
         std::io::Write::flush(&mut std::io::stdout()).ok();
-        git::fetch(&root).unwrap_or_else(|e| eprintln!("\n{} fetch failed: {}", "⚠".yellow(), e));
+        git::fetch(&root, &remote)
+            .unwrap_or_else(|e| eprintln!("\n{} fetch failed: {}", "⚠".yellow(), e));
         println!("{}", "done".green());
     }
 
@@ -327,6 +329,7 @@ pub async fn assess_all_targets(
     for target in pr_to {
         let target = target.clone();
         let root = root.clone();
+        let remote = remote.clone();
         let feature_branch = feature_branch.to_string();
         let conflict_branch = config.common.render_branch(
             &info.prefix,
@@ -340,7 +343,7 @@ pub async fn assess_all_targets(
 
         handles.push(tokio::task::spawn_blocking(move || -> TargetAssessment {
             let has_conflict =
-                !dry_run && git::check_merge_conflicts(&root, &feature_branch, &target);
+                !dry_run && git::check_merge_conflicts(&root, &feature_branch, &target, &remote);
 
             let conflict_branch_exists = git::branch_exists(&root, &conflict_branch);
 
@@ -570,8 +573,8 @@ fn create_conflict_branch(
     dry_run: bool,
 ) -> Result<Option<String>> {
     let root = expand_tilde(&repo.root);
-    // Always base conflict branches on origin/<target> — latest remote state.
-    let remote_base = format!("origin/{}", assessment.target);
+    // Always base conflict branches on <remote>/<target> — latest remote state.
+    let remote_base = format!("{}/{}", repo.remote(), assessment.target);
 
     match repo.repo_type {
         RepoType::Worktree => {
@@ -796,9 +799,10 @@ pub async fn run(config: &Config, dry_run: bool, continue_mode: bool) -> Result<
         && da.main_pr == PrStatus::None
     {
         anyhow::bail!(
-            "Merge conflicts detected between {} and origin/{}! \
+            "Merge conflicts detected between {} and {}/{}! \
              Resolve conflicts on {} before proceeding.",
             feature_branch.cyan(),
+            repo.remote(),
             da.target.magenta(),
             da.target
         );

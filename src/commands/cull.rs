@@ -60,6 +60,7 @@ fn worktree_status(
     repo_root: &Path,
     branch: &str,
     default_branch: &str,
+    remote: &str,
 ) -> WtStatus {
     // 1. dirty?
     let dirty = Command::new("git")
@@ -71,9 +72,9 @@ fn worktree_status(
         return WtStatus::Dirty;
     }
 
-    // 2. unpushed? Compare against origin/<branch> directly — more reliable than
+    // 2. unpushed? Compare against <remote>/<branch> directly — more reliable than
     //    @{u} which requires an explicit tracking ref to be configured.
-    let remote_ref = format!("origin/{branch}");
+    let remote_ref = format!("{remote}/{branch}");
     let unpushed = Command::new("git")
         .args(["-C", wt_path, "rev-parse", "--verify", &remote_ref])
         .output()
@@ -167,9 +168,10 @@ pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
             .default_branch
             .clone()
             .unwrap_or_else(|| "master".to_string());
+        let remote = repo.remote().to_string();
         let root = expand_tilde(&repo.root);
         status_set.spawn_blocking(move || {
-            let st = worktree_status(&wt.path, &root, &wt.branch, &default_branch);
+            let st = worktree_status(&wt.path, &root, &wt.branch, &default_branch, &remote);
             (repo, wt, st)
         });
     }
