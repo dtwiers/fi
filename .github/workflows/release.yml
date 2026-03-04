@@ -52,8 +52,7 @@ jobs:
           # Linux — cross-compiled from ubuntu via cargo-zigbuild
           - { target: x86_64-unknown-linux-musl,  os: ubuntu-latest,  artifact: fi-linux-x86_64       }
           - { target: aarch64-unknown-linux-musl, os: ubuntu-latest,  artifact: fi-linux-aarch64      }
-          # macOS — native runners required for macOS SDK headers
-          - { target: x86_64-apple-darwin,        os: macos-13,       artifact: fi-macos-x86_64       }
+          # macOS — native runner required for macOS SDK headers
           - { target: aarch64-apple-darwin,       os: macos-latest,   artifact: fi-macos-aarch64      }
           # Windows — native runner required for MSVC libs
           - { target: x86_64-pc-windows-msvc,     os: windows-latest, artifact: fi-windows-x86_64.exe }
