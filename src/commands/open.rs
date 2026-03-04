@@ -4,7 +4,9 @@ use inquire::Select;
 use std::fmt;
 use tokio::task::JoinSet;
 
-use super::{HookContext, execute_hook_decisions, merged_hooks, prompt_hook_confirmations, run_repo_cmd};
+use super::{
+    HookContext, execute_hook_decisions, merged_hooks, prompt_hook_confirmations, run_repo_cmd,
+};
 use crate::config::{Config, HookWhen, RepoConfig, RepoType, expand_tilde};
 use crate::git::{WorktreeInfo, is_dirty, list_worktrees};
 

@@ -2,7 +2,10 @@ use anyhow::Result;
 use colored::Colorize;
 use inquire::{MultiSelect, Select, Text};
 
-use super::{HookContext, execute_hook_decisions, merged_hooks, prompt_hook_confirmations, run_hooks_for, run_repo_cmd};
+use super::{
+    HookContext, execute_hook_decisions, merged_hooks, prompt_hook_confirmations, run_hooks_for,
+    run_repo_cmd,
+};
 use crate::config::{Config, HookWhen, RepoConfig, RepoType, expand_tilde};
 use crate::git;
 use crate::jira;
@@ -111,7 +114,7 @@ pub async fn run(config: &Config, dry_run: bool, ticket: Option<&str>) -> Result
                 HookWhen::Pre,
                 &HookContext {
                     command: "new",
-                    repo: &repo,
+                    repo,
                     branch_name: Some(&branch_name),
                     branch_path: None,
                 },
@@ -219,7 +222,7 @@ pub async fn run(config: &Config, dry_run: bool, ticket: Option<&str>) -> Result
         let branch_path_str = branch_path.to_string_lossy().to_string();
         let post_hook_ctx = HookContext {
             command: "new",
-            repo: &repo,
+            repo,
             branch_name: Some(&branch_name),
             branch_path: Some(&branch_path_str),
         };

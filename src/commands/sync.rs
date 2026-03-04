@@ -2,8 +2,8 @@ use anyhow::Result;
 use colored::Colorize;
 use inquire::Confirm;
 
-use super::{HookContext, merged_hooks, run_hooks_for};
 use super::pr::{PrStatus, assess_all_targets, detect_context, parse_branch};
+use super::{HookContext, merged_hooks, run_hooks_for};
 use crate::config::{Config, HookWhen, RepoType, expand_tilde};
 use crate::git;
 use crate::vlog;
