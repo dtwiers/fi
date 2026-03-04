@@ -2,6 +2,8 @@ use anyhow::Result;
 use std::path::Path;
 use std::process::Command;
 
+use crate::vlog;
+
 #[derive(Debug, Clone)]
 pub struct WorktreeInfo {
     pub path: String,
@@ -9,6 +11,7 @@ pub struct WorktreeInfo {
 }
 
 pub fn list_worktrees(repo_root: &Path) -> Result<Vec<WorktreeInfo>> {
+    vlog!("git -C {} worktree list --porcelain", repo_root.display());
     let output = Command::new("git")
         .current_dir(repo_root)
         .args(["worktree", "list", "--porcelain"])
@@ -63,6 +66,7 @@ pub fn is_dirty(path: &str) -> bool {
 
 /// Fetch from a specific remote, pruning deleted remote branches.
 pub fn fetch(repo_root: &Path, remote: &str) -> Result<()> {
+    vlog!("git -C {} fetch {} --prune", repo_root.display(), remote);
     let status = Command::new("git")
         .current_dir(repo_root)
         .args(["fetch", remote, "--prune"])
@@ -82,6 +86,12 @@ pub fn check_merge_conflicts(
     remote: &str,
 ) -> bool {
     let remote_target = format!("{remote}/{target}");
+    vlog!(
+        "git merge-tree: {} → {} (in {})",
+        feature_branch,
+        remote_target,
+        repo_root.display()
+    );
 
     // Prefer git merge-tree --write-tree (git ≥ 2.38): exit 1 means conflicts.
     let out = Command::new("git")
@@ -90,8 +100,14 @@ pub fn check_merge_conflicts(
         .output();
 
     match out {
-        Ok(o) if o.status.code() == Some(0) => return false,
-        Ok(o) if o.status.code() == Some(1) => return true,
+        Ok(o) if o.status.code() == Some(0) => {
+            vlog!("  merge-tree: no conflicts");
+            return false;
+        }
+        Ok(o) if o.status.code() == Some(1) => {
+            vlog!("  merge-tree: conflicts detected");
+            return true;
+        }
         _ => {}
     }
 
@@ -118,6 +134,11 @@ pub fn check_merge_conflicts(
 
 /// Return true if `branch` exists as a local ref.
 pub fn branch_exists(repo_root: &Path, branch: &str) -> bool {
+    vlog!(
+        "git rev-parse --verify refs/heads/{} (in {})",
+        branch,
+        repo_root.display()
+    );
     Command::new("git")
         .current_dir(repo_root)
         .args(["rev-parse", "--verify", &format!("refs/heads/{branch}")])
@@ -129,6 +150,12 @@ pub fn branch_exists(repo_root: &Path, branch: &str) -> bool {
 /// Return true if `ancestor` is reachable from `descendant` (i.e. all commits
 /// of `ancestor` are already in `descendant`).
 pub fn is_ancestor(repo_root: &Path, ancestor: &str, descendant: &str) -> bool {
+    vlog!(
+        "git merge-base --is-ancestor {} {} (in {})",
+        ancestor,
+        descendant,
+        repo_root.display()
+    );
     Command::new("git")
         .current_dir(repo_root)
         .args(["merge-base", "--is-ancestor", ancestor, descendant])
@@ -173,6 +200,7 @@ pub fn current_branch(path: &str) -> Option<String> {
 /// Merge `branch` into the current checkout at `path`.
 /// Returns `Ok(true)` for a clean merge, `Ok(false)` if conflicts remain.
 pub fn merge_into(path: &str, branch: &str) -> Result<bool> {
+    vlog!("git merge {} --no-edit (in {})", branch, path);
     let status = Command::new("git")
         .current_dir(path)
         .args(["merge", branch, "--no-edit"])
@@ -182,6 +210,12 @@ pub fn merge_into(path: &str, branch: &str) -> Result<bool> {
 
 /// Push `branch` to the given remote, setting upstream tracking if not already set.
 pub fn push_branch(repo_root: &Path, branch: &str, remote: &str) -> Result<()> {
+    vlog!(
+        "git push --set-upstream {} {} (in {})",
+        remote,
+        branch,
+        repo_root.display()
+    );
     let status = Command::new("git")
         .current_dir(repo_root)
         .args(["push", "--set-upstream", remote, branch])
@@ -198,6 +232,13 @@ pub fn create_worktree(
     branch: &str,
     base: &str,
 ) -> Result<()> {
+    vlog!(
+        "git worktree add {} -b {} {} (in {})",
+        worktree_path.display(),
+        branch,
+        base,
+        repo_root.display()
+    );
     if let Some(parent) = worktree_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -220,6 +261,12 @@ pub fn create_worktree(
 }
 
 pub fn create_branch(repo_root: &Path, branch: &str, base: &str) -> Result<()> {
+    vlog!(
+        "git checkout -b {} {} (in {})",
+        branch,
+        base,
+        repo_root.display()
+    );
     let status = Command::new("git")
         .current_dir(repo_root)
         .args(["checkout", "-b", branch, base])

@@ -4,6 +4,7 @@ use serde::Deserialize;
 use std::fmt;
 
 use crate::config::Config;
+use crate::vlog;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct JiraUser {
@@ -76,6 +77,7 @@ async fn jira_get<T: for<'de> Deserialize<'de>>(
 
     let client = reqwest::Client::new();
     let url = format!("{}{}", config.jira.base_url, path);
+    vlog!("Jira GET {}", url);
     let response = client
         .get(&url)
         .header("Authorization", format!("Basic {}", token))

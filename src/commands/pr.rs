@@ -9,6 +9,7 @@ use super::collect_ask_values;
 use crate::config::{Config, RepoConfig, RepoType, expand_tilde};
 use crate::git;
 use crate::template::{render_template, unescape};
+use crate::vlog;
 
 // ── Branch parsing ────────────────────────────────────────────────────────────
 
@@ -378,7 +379,7 @@ pub async fn assess_all_targets(
             };
             let main_pr = check_pr_status(&feature_branch, &target);
 
-            TargetAssessment {
+            let assessment = TargetAssessment {
                 target,
                 is_default,
                 has_conflict,
@@ -389,7 +390,16 @@ pub async fn assess_all_targets(
                 conflict_worktree_path,
                 conflict_pr,
                 main_pr,
-            }
+            };
+            vlog!(
+                "assessment[{}]: conflict={} branch_exists={} merged_in={} unresolved={}",
+                assessment.target,
+                assessment.has_conflict,
+                assessment.conflict_branch_exists,
+                assessment.feature_merged_in,
+                assessment.conflict_unresolved,
+            );
+            assessment
         }));
     }
 
@@ -555,6 +565,13 @@ fn create_pr(spec: &PrSpec, draft: bool, dry_run: bool) -> bool {
     if draft {
         cmd.arg("--draft");
     }
+    vlog!(
+        "gh pr create --base {} --head {} --title {:?}{}",
+        spec.base,
+        spec.head,
+        spec.title,
+        if draft { " --draft" } else { "" }
+    );
     let ok = cmd.status().map(|s| s.success()).unwrap_or(false);
     if ok {
         println!("  {}", "✓ Created".green());

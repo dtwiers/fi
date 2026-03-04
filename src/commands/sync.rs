@@ -5,6 +5,7 @@ use inquire::Confirm;
 use super::pr::{PrStatus, assess_all_targets, detect_context, parse_branch};
 use crate::config::{Config, RepoType, expand_tilde};
 use crate::git;
+use crate::vlog;
 
 /// `fi sync` — keep conflict branches up to date with the feature branch.
 ///
@@ -84,6 +85,7 @@ pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
             if dry_run {
                 println!("{} git switch {}", "[dry-run]".yellow(), a.conflict_branch);
             } else {
+                vlog!("git switch {} (in {})", a.conflict_branch, root.display());
                 let status = std::process::Command::new("git")
                     .current_dir(&root)
                     .args(["switch", &a.conflict_branch])

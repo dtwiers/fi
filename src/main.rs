@@ -9,6 +9,7 @@ mod config;
 mod git;
 mod jira;
 mod template;
+mod verbose;
 
 #[derive(Parser)]
 #[command(name = "fi", about = "Feature workflow tool", version)]
@@ -192,6 +193,7 @@ fn fix_fish_completions(raw: &str) -> String {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    verbose::set(cli.verbose);
 
     if let Commands::Completions { shell } = cli.command {
         let mut cmd = Cli::command();
@@ -221,9 +223,7 @@ async fn main() -> Result<()> {
     }
 
     let config_path = config::find_config_path(cli.config.as_deref())?;
-    if cli.verbose {
-        eprintln!("fi: loading config from {}", config_path.display());
-    }
+    vlog!("loading config from {}", config_path.display());
     let config = config::find_config(cli.config.as_deref())?;
 
     match cli.command {
