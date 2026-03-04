@@ -36,27 +36,27 @@ jobs:
       - run: cargo clippy -- -D warnings
       - run: cargo test
 
-  # ── Cross-compile binaries ────────────────────────────────────────────────────
-  # All targets build on ubuntu-latest via cargo-zigbuild, which uses zig as the
-  # linker/C compiler. This covers macOS (both arches) without Apple runners.
+  # ── Build binaries ────────────────────────────────────────────────────────────
+  # Linux targets cross-compile via cargo-zigbuild (zig supplies the musl
+  # toolchain — no system deps needed). macOS and Windows use native runners
+  # because reqwest's TLS backend (aws-lc-rs) compiles C that requires the
+  # platform SDK; zigbuild cannot supply those headers cross-platform.
   build:
     name: Build (${{ matrix.artifact }})
     needs: check
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-musl
-            artifact: fi-linux-x86_64
-          - target: aarch64-unknown-linux-musl
-            artifact: fi-linux-aarch64
-          - target: x86_64-apple-darwin
-            artifact: fi-macos-x86_64
-          - target: aarch64-apple-darwin
-            artifact: fi-macos-aarch64
-          - target: x86_64-pc-windows-gnu
-            artifact: fi-windows-x86_64.exe
+          # Linux — cross-compiled from ubuntu via cargo-zigbuild
+          - { target: x86_64-unknown-linux-musl,  os: ubuntu-latest,  artifact: fi-linux-x86_64       }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-latest,  artifact: fi-linux-aarch64      }
+          # macOS — native runners required for macOS SDK headers
+          - { target: x86_64-apple-darwin,        os: macos-13,       artifact: fi-macos-x86_64       }
+          - { target: aarch64-apple-darwin,       os: macos-latest,   artifact: fi-macos-aarch64      }
+          # Windows — native runner required for MSVC libs
+          - { target: x86_64-pc-windows-msvc,     os: windows-latest, artifact: fi-windows-x86_64.exe }
 
     steps:
       - uses: actions/checkout@v4
@@ -74,22 +74,32 @@ jobs:
           key: ${{ runner.os }}-cargo-release-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-release-${{ matrix.target }}-
 
+      # ── Linux: cross-compile with zig ────────────────────────────────────────
       - name: Install zig
+        if: contains(matrix.target, 'linux')
         run: pip3 install ziglang
 
       - name: Install cargo-zigbuild
+        if: contains(matrix.target, 'linux')
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-zigbuild
 
-      - name: Build
+      - name: Build (zigbuild)
+        if: contains(matrix.target, 'linux')
         run: cargo zigbuild --release --target ${{ matrix.target }}
 
+      # ── macOS / Windows: native build ────────────────────────────────────────
+      - name: Build (native)
+        if: ${{ !contains(matrix.target, 'linux') }}
+        run: cargo build --release --target ${{ matrix.target }}
+
+      # ── Stage binary ─────────────────────────────────────────────────────────
       - name: Stage artifact
+        shell: bash
         run: |
           SRC="target/${{ matrix.target }}/release/fi"
           ARTIFACT="${{ matrix.artifact }}"
-          # Windows binaries have an .exe extension in the build output
           [[ "$ARTIFACT" == *.exe ]] && SRC="${SRC}.exe"
           cp "$SRC" "$ARTIFACT"
 
