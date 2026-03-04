@@ -90,6 +90,22 @@ repos:
           # Example: open editor + a side pane with wezterm
           # set -l PANE_ID (wezterm cli spawn --cwd "$BRANCH_PATH")
           # wezterm cli send-text "nvim\n" --pane-id $PANE_ID
+    hooks:
+      # Hooks run before (pre) or after (post) fi commands.
+      # Available commands: new, open, pr, cull, sync
+      # Template vars: {branch.name}, {branch.path}, {repo.root}, {repo.name}, {repo.remote}, {ask.<name>}
+      - name: push to remote
+        trigger: new           # or a list: [new, pr]
+        when: post
+        optional: true    # ask the user before running
+        defaultOn: true   # default answer is "yes"
+        runner: fish
+        env:
+          BRANCH_NAME: "{branch.name}"
+          REMOTE: "{repo.remote}"
+          REPO_ROOT: "{repo.root}"
+        run: |
+          git -C $REPO_ROOT push --set-upstream $REMOTE $BRANCH_NAME
 
   # ── Example: standard (non-worktree) repo ─────────────────────────────────
   - name: My Config

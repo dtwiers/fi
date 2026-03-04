@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
 
-use super::collect_ask_values;
-use crate::config::{Config, RepoConfig, RepoType, expand_tilde};
+use super::{HookContext, collect_ask_values, merged_hooks, run_hooks_for};
+use crate::config::{Config, HookWhen, RepoConfig, RepoType, expand_tilde};
 use crate::git;
 use crate::template::{render_template, unescape};
 use crate::vlog;
@@ -734,6 +734,22 @@ pub async fn run(config: &Config, dry_run: bool, continue_mode: bool) -> Result<
 
     let ask_vals = collect_ask_values(tmpl.ask.as_ref())?;
 
+    // Pre-hooks
+    {
+        let hooks = merged_hooks(config.hooks.as_ref(), repo.hooks.as_ref());
+        run_hooks_for(
+            &hooks,
+            HookWhen::Pre,
+            &HookContext {
+                command: "pr",
+                repo: &repo,
+                branch_name: Some(&feature_branch),
+                branch_path: None,
+            },
+            dry_run,
+        )?;
+    }
+
     // Assess all targets (fetches first, uses origin/* refs).
     let assessments =
         assess_all_targets(&repo, &feature_branch, &feature_info, config, dry_run).await?;
@@ -971,6 +987,22 @@ pub async fn run(config: &Config, dry_run: bool, continue_mode: bool) -> Result<
             "⚡".yellow(),
             a.conflict_branch.cyan()
         );
+    }
+
+    // Post-hooks
+    {
+        let hooks = merged_hooks(config.hooks.as_ref(), repo.hooks.as_ref());
+        run_hooks_for(
+            &hooks,
+            HookWhen::Post,
+            &HookContext {
+                command: "pr",
+                repo: &repo,
+                branch_name: Some(&feature_branch),
+                branch_path: None,
+            },
+            dry_run,
+        )?;
     }
 
     Ok(())

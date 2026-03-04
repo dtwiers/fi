@@ -2,8 +2,9 @@ use anyhow::Result;
 use colored::Colorize;
 use inquire::Confirm;
 
+use super::{HookContext, merged_hooks, run_hooks_for};
 use super::pr::{PrStatus, assess_all_targets, detect_context, parse_branch};
-use crate::config::{Config, RepoType, expand_tilde};
+use crate::config::{Config, HookWhen, RepoType, expand_tilde};
 use crate::git;
 use crate::vlog;
 
@@ -189,5 +190,22 @@ pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
 
     println!();
     println!("{}", "Sync complete.".green().bold());
+
+    // Post-hooks
+    {
+        let hooks = merged_hooks(config.hooks.as_ref(), repo.hooks.as_ref());
+        run_hooks_for(
+            &hooks,
+            HookWhen::Post,
+            &HookContext {
+                command: "sync",
+                repo: &repo,
+                branch_name: Some(&current_branch),
+                branch_path: None,
+            },
+            dry_run,
+        )?;
+    }
+
     Ok(())
 }
