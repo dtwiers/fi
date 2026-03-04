@@ -10,10 +10,14 @@ mod git;
 mod jira;
 
 #[derive(Parser)]
-#[command(name = "fi", about = "Feature workflow tool")]
+#[command(name = "fi", about = "Feature workflow tool", version)]
 struct Cli {
+    /// Path to a config file (overrides the default search path)
     #[arg(short, long)]
     config: Option<String>,
+    /// Print the config path being loaded and other diagnostic info
+    #[arg(short, long, global = true)]
+    verbose: bool,
     #[command(subcommand)]
     command: Commands,
 }
@@ -56,6 +60,13 @@ enum Commands {
         #[arg(short = 'n', long)]
         dry_run: bool,
     },
+    /// List all repos and their current branches / worktrees
+    List,
+    /// Inspect or edit the config file
+    Config {
+        #[command(subcommand)]
+        sub: commands::config::ConfigSubcommand,
+    },
     /// Generate shell completion scripts
     Completions {
         /// Shell to generate completions for
@@ -83,6 +94,16 @@ async fn main() -> Result<()> {
         return commands::init::run(force);
     }
 
+    // fi config subcommands don't need a loaded config (validate/path/show/edit
+    // all handle the "no config yet" case themselves)
+    if let Commands::Config { ref sub } = cli.command {
+        return commands::config::run(sub, cli.config.as_deref()).await;
+    }
+
+    let config_path = config::find_config_path(cli.config.as_deref())?;
+    if cli.verbose {
+        eprintln!("fi: loading config from {}", config_path.display());
+    }
     let config = config::find_config(cli.config.as_deref())?;
 
     match cli.command {
@@ -92,6 +113,9 @@ async fn main() -> Result<()> {
         Commands::Cull { dry_run } => commands::cull::run(&config, dry_run).await,
         Commands::Pr { dry_run } => commands::pr::run(&config, dry_run).await,
         Commands::Open { dry_run } => commands::open::run(&config, dry_run).await,
-        Commands::Completions { .. } | Commands::Init { .. } => unreachable!(),
+        Commands::List => commands::list::run(&config).await,
+        Commands::Completions { .. } | Commands::Init { .. } | Commands::Config { .. } => {
+            unreachable!()
+        }
     }
 }

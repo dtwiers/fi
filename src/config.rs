@@ -150,6 +150,48 @@ pub fn find_config(override_path: Option<&str>) -> Result<Config> {
         }
     }
 
-    anyhow::bail!("No config file found. Tried: {:?}", paths)
+    anyhow::bail!(
+        "No config file found (tried: {})\n  → Run 'fi init' to create a starter config.",
+        paths
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
+/// Return only the *path* of the first config file that exists, without fully
+/// parsing it. Useful for `fi config path` and `fi config edit`.
+pub fn find_config_path(override_path: Option<&str>) -> Result<PathBuf> {
+    let paths: Vec<PathBuf> = match override_path {
+        Some(p) => vec![PathBuf::from(p)],
+        None => {
+            let home = dirs::home_dir().unwrap_or_default();
+            vec![
+                PathBuf::from("fi.yaml"),
+                home.join(".config/fi/fi.yaml"),
+                home.join(".config/fi/fi.yml"),
+            ]
+        }
+    };
+
+    for path in &paths {
+        if path.exists() {
+            // Return the canonicalised absolute path so callers always get a
+            // fully-qualified path regardless of where fi was invoked from.
+            return path
+                .canonicalize()
+                .with_context(|| format!("resolving path {:?}", path));
+        }
+    }
+
+    anyhow::bail!(
+        "No config file found (tried: {})\n  → Run 'fi init' to create a starter config.",
+        paths
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
 }
 

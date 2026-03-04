@@ -74,7 +74,11 @@ async fn jira_get<T: for<'de> Deserialize<'de>>(
     params: &[(&str, &str)],
 ) -> Result<T> {
     let token = std::env::var(&config.jira.token.env).map_err(|_| {
-        anyhow::anyhow!("Jira token not found in env var: {}", config.jira.token.env)
+        anyhow::anyhow!(
+            "Jira token not set.\n               Expected env var '{}' to contain a base64-encoded 'email:token' string.\n               Generate it with: echo -n \"you@company.com:your_api_token\" | base64\n               Then export it in your shell profile, e.g.: export {}=<result>",
+            config.jira.token.env,
+            config.jira.token.env
+        )
     })?;
 
     let client = reqwest::Client::new();
@@ -88,11 +92,15 @@ async fn jira_get<T: for<'de> Deserialize<'de>>(
         .await?;
 
     if !response.status().is_success() {
-        anyhow::bail!(
-            "Jira API error {}: {}",
-            response.status(),
-            response.text().await?
-        );
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        let hint = match status.as_u16() {
+            401 => "\n  → Your Jira token may be invalid or expired. Regenerate it and update the env var.",
+            403 => "\n  → Your Jira account may lack permission to access this board or resource.",
+            404 => "\n  → Board ID or quick-filter ID not found. Check 'boardId' and 'quickFilterId' in your config.",
+            _ => "",
+        };
+        anyhow::bail!("Jira API error {} for {}{}{}", status, url, hint, if body.is_empty() { String::new() } else { format!("\n  Response: {}", body) });
     }
 
     Ok(response.json().await?)
