@@ -32,6 +32,9 @@ common:
     - hotfix
   # Which prefix is pre-selected when creating a branch
   defaultBranchPrefix: feature
+  # Branch name format. Supports {branchPrefix}, {ticket.key}, {slug}.
+  # Default if omitted: "{branchPrefix}/{ticket.key}-{slug}"
+  branchFormat: "{branchPrefix}/{ticket.key}-{slug}"
 
 repos:
   # ── Example: git worktree repo (bare repo) ────────────────────────────────

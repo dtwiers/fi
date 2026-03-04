@@ -2,6 +2,7 @@ use anyhow::Result;
 use colored::Colorize;
 use inquire::Select;
 use std::fmt;
+use tokio::task::JoinSet;
 
 use crate::config::{Config, RepoConfig, RepoType, expand_tilde};
 use crate::git::{WorktreeInfo, is_dirty, list_worktrees};
@@ -40,42 +41,86 @@ impl fmt::Display for WorktreeOption {
 }
 
 pub async fn run(config: &Config, dry_run: bool) -> Result<()> {
-    let worktree_repos: Vec<&RepoConfig> = config
-        .repos
-        .iter()
-        .filter(|r| r.repo_type == RepoType::Worktree)
-        .collect();
-
-    if worktree_repos.is_empty() {
-        println!("No worktree repos configured.");
+    if config.repos.is_empty() {
+        println!("No repos configured.");
         return Ok(());
     }
 
-    let multi_repo = worktree_repos.len() > 1;
+    let multi_repo = config.repos.len() > 1;
 
-    eprint!("Fetching worktrees...");
-    let mut options: Vec<WorktreeOption> = Vec::new();
-    for repo in &worktree_repos {
+    // Collect all (repo, worktree-like entry, is_persistent) tuples
+    let mut raw: Vec<(RepoConfig, WorktreeInfo, bool)> = Vec::new();
+    for repo in &config.repos {
         let repo_root = expand_tilde(&repo.root);
         let persistent = repo.persistent_branches.clone().unwrap_or_default();
-        for wt in list_worktrees(&repo_root).unwrap_or_default() {
+
+        let entries: Vec<WorktreeInfo> = match repo.repo_type {
+            RepoType::Worktree => list_worktrees(&repo_root).unwrap_or_default(),
+            RepoType::Standard => {
+                // Only show the currently checked-out branch — we don't switch branches
+                let out = std::process::Command::new("git")
+                    .current_dir(&repo_root)
+                    .args(["branch", "--show-current"])
+                    .output();
+                match out {
+                    Ok(o) if o.status.success() => {
+                        let branch = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                        if branch.is_empty() {
+                            vec![] // detached HEAD
+                        } else {
+                            vec![WorktreeInfo {
+                                path: repo_root.to_string_lossy().to_string(),
+                                branch,
+                            }]
+                        }
+                    }
+                    _ => vec![],
+                }
+            }
+        };
+
+        for wt in entries {
             let is_persistent = persistent.contains(&wt.branch);
+            raw.push((repo.clone(), wt, is_persistent));
+        }
+    }
+
+    if raw.is_empty() {
+        println!("No worktrees or branches found.");
+        return Ok(());
+    }
+
+    eprint!("Checking {} worktrees...", raw.len());
+
+    // Run dirty checks in parallel on blocking threads
+    let mut join_set: JoinSet<(RepoConfig, WorktreeInfo, bool, bool)> = JoinSet::new();
+    for (repo, wt, is_persistent) in raw {
+        join_set.spawn_blocking(move || {
             let dirty = is_dirty(&wt.path);
+            (repo, wt, is_persistent, dirty)
+        });
+    }
+
+    let mut options: Vec<WorktreeOption> = Vec::new();
+    while let Some(res) = join_set.join_next().await {
+        if let Ok((repo, wt, is_persistent, dirty)) = res {
             options.push(WorktreeOption {
                 info: wt,
-                repo: (*repo).clone(),
+                repo,
                 is_persistent,
                 is_dirty: dirty,
                 multi_repo,
             });
         }
     }
-    eprintln!(" {} worktrees", options.len());
 
-    if options.is_empty() {
-        println!("No worktrees found.");
-        return Ok(());
-    }
+    // Sort: persistent first (blue), then dirty (yellow), then clean (green); alpha within groups
+    options.sort_by_key(|o| {
+        let group = if o.is_persistent { 0 } else if o.is_dirty { 1 } else { 2 };
+        (group, o.info.branch.clone())
+    });
+
+    eprintln!(" done");
 
     let selected = Select::new("Select worktree to open:", options)
         .with_page_size(15)

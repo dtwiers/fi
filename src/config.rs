@@ -38,6 +38,20 @@ pub struct CommonConfig {
     #[serde(rename = "defaultBranchPrefix")]
     #[allow(dead_code)]
     pub default_branch_prefix: String,
+    #[serde(rename = "branchFormat")]
+    pub branch_format: Option<String>,
+}
+
+impl CommonConfig {
+    /// Render the branch name from the format template.
+    /// Supported variables: {branchPrefix}, {ticket.key}, {slug}
+    pub fn render_branch(&self, prefix: &str, ticket_key: &str, slug: &str) -> String {
+        let fmt = self.branch_format.as_deref()
+            .unwrap_or("{branchPrefix}/{ticket.key}-{slug}");
+        fmt.replace("{branchPrefix}", prefix)
+            .replace("{ticket.key}", ticket_key)
+            .replace("{slug}", slug)
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
