@@ -1,0 +1,118 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.*"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ── Quality gate ─────────────────────────────────────────────────────────────
+  # Re-run checks so a release can never be created without a clean build,
+  # even if someone pushes a tag without going through a PR.
+  check:
+    name: Quality gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - run: cargo fmt -- --check
+      - run: cargo clippy -- -D warnings
+      - run: cargo test
+
+  # ── Cross-compile binaries ────────────────────────────────────────────────────
+  # All targets build on ubuntu-latest via cargo-zigbuild, which uses zig as the
+  # linker/C compiler. This covers macOS (both arches) without Apple runners.
+  build:
+    name: Build (${{ matrix.artifact }})
+    needs: check
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            artifact: fi-linux-x86_64
+          - target: aarch64-unknown-linux-musl
+            artifact: fi-linux-aarch64
+          - target: x86_64-apple-darwin
+            artifact: fi-macos-x86_64
+          - target: aarch64-apple-darwin
+            artifact: fi-macos-aarch64
+          - target: x86_64-pc-windows-gnu
+            artifact: fi-windows-x86_64.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-release-${{ matrix.target }}-
+
+      - name: Install zig
+        run: pip3 install ziglang
+
+      - name: Install cargo-zigbuild
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
+
+      - name: Build
+        run: cargo zigbuild --release --target ${{ matrix.target }}
+
+      - name: Stage artifact
+        run: |
+          SRC="target/${{ matrix.target }}/release/fi"
+          ARTIFACT="${{ matrix.artifact }}"
+          # Windows binaries have an .exe extension in the build output
+          [[ "$ARTIFACT" == *.exe ]] && SRC="${SRC}.exe"
+          cp "$SRC" "$ARTIFACT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+
+  # ── Publish GitHub Release ────────────────────────────────────────────────────
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

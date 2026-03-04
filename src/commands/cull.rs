@@ -10,6 +10,7 @@ use tokio::task::JoinSet;
 
 use crate::config::{Config, RepoConfig, RepoType, expand_tilde};
 use crate::git::{WorktreeInfo, list_worktrees};
+use crate::vlog;
 
 const CONCURRENCY: usize = 3;
 
@@ -62,6 +63,7 @@ fn worktree_status(
     default_branch: &str,
     remote: &str,
 ) -> WtStatus {
+    vlog!("checking status of worktree: {} ({})", branch, wt_path);
     // 1. dirty?
     let dirty = Command::new("git")
         .args(["-C", wt_path, "status", "--porcelain"])
@@ -69,6 +71,7 @@ fn worktree_status(
         .map(|o| !o.stdout.is_empty())
         .unwrap_or(false);
     if dirty {
+        vlog!("  {} is dirty", branch);
         return WtStatus::Dirty;
     }
 
@@ -104,6 +107,7 @@ fn worktree_status(
         })
         .unwrap_or(true);
     if unpushed {
+        vlog!("  {} is unpushed", branch);
         return WtStatus::Unpushed;
     }
 
@@ -124,9 +128,11 @@ fn worktree_status(
         })
         .unwrap_or(false);
     if merged {
+        vlog!("  {} is merged into {}", branch, default_branch);
         return WtStatus::Merged;
     }
 
+    vlog!("  {} is clean (pushed, not merged)", branch);
     WtStatus::Clean
 }
 
@@ -280,6 +286,11 @@ async fn cull_worktree(
     branch: &str,
     _pb: &ProgressBar,
 ) -> Result<()> {
+    vlog!(
+        "git worktree remove --force {} (in {})",
+        wt_path,
+        repo_root.display()
+    );
     let status = Command::new("git")
         .args([
             "-C",

@@ -1,9 +1,9 @@
 [package]
 name = "fi"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 license = "MIT"
-authors = ["Block, Inc."]
+authors = []
 description = "A feature workflow tool that integrates Jira with Git for streamlined branch management"
 
 [dependencies]
