@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use crate::config::find_config;
 
-const EXAMPLE_CONFIG: &str = r#"# yaml-language-server: $schema=https://raw.githubusercontent.com/YOUR_USER/fi/main/fi.schema.json
+const EXAMPLE_CONFIG: &str = r#"# yaml-language-server: $schema=https://raw.githubusercontent.com/dtwiers/fi/main/fi.schema.json
 ---
 version: 1
 
@@ -106,10 +106,11 @@ repos:
 "#;
 
 pub fn run(force: bool) -> Result<()> {
-    // Determine config path
-    let config_path: PathBuf = dirs::config_dir()
-        .map(|d| d.join("fi").join("fi.yaml"))
-        .ok_or_else(|| anyhow::anyhow!("Cannot determine config directory"))?;
+    // Determine config path - use ~/.config/fi/fi.yaml on all platforms for consistency
+    // This matches the path that find_config() looks for in config.rs
+    let config_path: PathBuf = dirs::home_dir()
+        .map(|h| h.join(".config").join("fi").join("fi.yaml"))
+        .ok_or_else(|| anyhow::anyhow!("Cannot determine home directory"))?;
 
     // Check if already exists
     if config_path.exists() && !force {
